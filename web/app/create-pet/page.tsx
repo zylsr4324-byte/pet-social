@@ -3,8 +3,19 @@
 import Link from "next/link";
 import { useState } from "react";
 
+type PetProfile = {
+  petName: string;
+  species: string;
+  color: string;
+  size: string;
+  personality: string;
+  specialTraits: string;
+};
+
+const PET_STORAGE_KEY = "pet-agent-social:pet-profile";
+
 export default function CreatePetPage() {
-  const [pet, setPet] = useState({
+  const [pet, setPet] = useState<PetProfile>({
     petName: "",
     species: "",
     color: "",
@@ -12,12 +23,32 @@ export default function CreatePetPage() {
     personality: "",
     specialTraits: "",
   });
+  const [saveFeedback, setSaveFeedback] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
-  const handlePetChange = (field: keyof typeof pet, value: string) => {
+  const handlePetChange = (field: keyof PetProfile, value: string) => {
     setPet((currentPet) => ({
       ...currentPet,
       [field]: value,
     }));
+    setSaveFeedback(null);
+  };
+
+  const handleSavePet = () => {
+    try {
+      window.localStorage.setItem(PET_STORAGE_KEY, JSON.stringify(pet));
+      setSaveFeedback({
+        type: "success",
+        message: `已保存${pet.petName || "这只宠物"}的资料，现在可以去“我的宠物”页面查看。`,
+      });
+    } catch {
+      setSaveFeedback({
+        type: "error",
+        message: "这次保存没有成功，请稍后再试一次。",
+      });
+    }
   };
 
   const petCardName = pet.petName || "未命名宠物";
@@ -171,15 +202,34 @@ export default function CreatePetPage() {
             </div>
 
             <div className="pt-2">
-              <button
-               type="button"
-               onClick={() => {
-                    alert(`宠物信息已读取：${pet.petName || "未命名宠物"}`);
-                }}
-                className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
-              >
-                保存宠物信息
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleSavePet}
+                  className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
+                >
+                  保存宠物信息
+                </button>
+
+                <Link
+                  href="/my-pet"
+                  className="text-sm text-gray-500 transition hover:text-gray-800"
+                >
+                  去查看我的宠物 →
+                </Link>
+              </div>
+
+              {saveFeedback ? (
+                <div
+                  className={`mt-4 rounded-xl border px-4 py-3 text-sm leading-6 ${
+                    saveFeedback.type === "success"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-rose-200 bg-rose-50 text-rose-700"
+                  }`}
+                >
+                  {saveFeedback.message}
+                </div>
+              ) : null}
             </div>
           </form>
 

@@ -21,12 +21,19 @@ export default function Home() {
           当前阶段：前端项目初始化成功，准备开始搭建首页和宠物创建功能。
         </div>
 
-        <div className="mt-8">
+        <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
             href="/create-pet"
             className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
           >
             去创建宠物
+          </Link>
+
+          <Link
+            href="/my-pet"
+            className="inline-flex rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-700 transition hover:border-gray-400 hover:text-gray-900"
+          >
+            查看我的宠物
           </Link>
         </div>
       </div>
