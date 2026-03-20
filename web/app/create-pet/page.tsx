@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type PetProfile = {
   petName: string;
@@ -14,6 +14,23 @@ type PetProfile = {
 
 const PET_STORAGE_KEY = "pet-agent-social:pet-profile";
 
+const isPetProfile = (value: unknown): value is PetProfile => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const pet = value as Record<string, unknown>;
+
+  return (
+    typeof pet.petName === "string" &&
+    typeof pet.species === "string" &&
+    typeof pet.color === "string" &&
+    typeof pet.size === "string" &&
+    typeof pet.personality === "string" &&
+    typeof pet.specialTraits === "string"
+  );
+};
+
 export default function CreatePetPage() {
   const [pet, setPet] = useState<PetProfile>({
     petName: "",
@@ -23,28 +40,50 @@ export default function CreatePetPage() {
     personality: "",
     specialTraits: "",
   });
-  const [saveFeedback, setSaveFeedback] = useState<{
-    type: "success" | "error";
+  const [feedback, setFeedback] = useState<{
+    type: "success" | "error" | "info";
     message: string;
   } | null>(null);
+
+  useEffect(() => {
+    try {
+      const savedPet = window.localStorage.getItem(PET_STORAGE_KEY);
+
+      if (!savedPet) {
+        return;
+      }
+
+      const parsedPet = JSON.parse(savedPet);
+
+      if (isPetProfile(parsedPet)) {
+        setPet(parsedPet);
+        setFeedback({
+          type: "info",
+          message: `已为你加载上次保存的${parsedPet.petName || "宠物"}资料，可以直接继续编辑。`,
+        });
+      }
+    } catch {
+      setFeedback(null);
+    }
+  }, []);
 
   const handlePetChange = (field: keyof PetProfile, value: string) => {
     setPet((currentPet) => ({
       ...currentPet,
       [field]: value,
     }));
-    setSaveFeedback(null);
+    setFeedback(null);
   };
 
   const handleSavePet = () => {
     try {
       window.localStorage.setItem(PET_STORAGE_KEY, JSON.stringify(pet));
-      setSaveFeedback({
+      setFeedback({
         type: "success",
         message: `已保存${pet.petName || "这只宠物"}的资料，现在可以去“我的宠物”页面查看。`,
       });
     } catch {
-      setSaveFeedback({
+      setFeedback({
         type: "error",
         message: "这次保存没有成功，请稍后再试一次。",
       });
@@ -219,15 +258,17 @@ export default function CreatePetPage() {
                 </Link>
               </div>
 
-              {saveFeedback ? (
+              {feedback ? (
                 <div
                   className={`mt-4 rounded-xl border px-4 py-3 text-sm leading-6 ${
-                    saveFeedback.type === "success"
+                    feedback.type === "success"
                       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : "border-rose-200 bg-rose-50 text-rose-700"
+                      : feedback.type === "error"
+                        ? "border-rose-200 bg-rose-50 text-rose-700"
+                        : "border-amber-200 bg-amber-50 text-amber-700"
                   }`}
                 >
-                  {saveFeedback.message}
+                  {feedback.message}
                 </div>
               ) : null}
             </div>

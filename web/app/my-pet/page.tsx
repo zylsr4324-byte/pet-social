@@ -202,11 +202,11 @@ export default function MyPetPage() {
                     href="/create-pet"
                     className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
                   >
-                    继续编辑宠物
+                    编辑我的宠物
                   </Link>
 
                   <p className="text-sm text-gray-500">
-                    想更新资料的话，回到创建页面重新保存一次就可以。
+                    想更新资料的话，回到创建页面继续编辑并重新保存一次就可以。
                   </p>
                 </div>
               </div>
