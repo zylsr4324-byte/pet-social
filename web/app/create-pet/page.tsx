@@ -4,12 +4,21 @@ import Link from "next/link";
 import { useState } from "react";
 
 export default function CreatePetPage() {
-  const [petName, setPetName] = useState("");
-  const [species, setSpecies] = useState("");
-  const [color, setColor] = useState("");
-  const [size, setSize] = useState("");
-  const [personality, setPersonality] = useState("");
-  const [specialTraits, setSpecialTraits] = useState("");
+  const [pet, setPet] = useState({
+    petName: "",
+    species: "",
+    color: "",
+    size: "",
+    personality: "",
+    specialTraits: "",
+  });
+
+  const handlePetChange = (field: keyof typeof pet, value: string) => {
+    setPet((currentPet) => ({
+      ...currentPet,
+      [field]: value,
+    }));
+  };
 
   return (
     <main className="min-h-screen bg-white px-6 py-12 text-gray-900">
@@ -41,8 +50,8 @@ export default function CreatePetPage() {
                 id="petName"
                 name="petName"
                 type="text"
-                value={petName}
-                onChange={(e) => setPetName(e.target.value)}
+                value={pet.petName}
+                onChange={(e) => handlePetChange("petName", e.target.value)}
                 placeholder="例如：小泡芙"
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500"
               />
@@ -58,8 +67,8 @@ export default function CreatePetPage() {
               <select
                 id="species"
                 name="species"
-                value={species}
-                onChange={(e) => setSpecies(e.target.value)}
+                value={pet.species}
+                onChange={(e) => handlePetChange("species", e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500"
               >
                 <option value="">请选择一个品种</option>
@@ -82,8 +91,8 @@ export default function CreatePetPage() {
                 id="color"
                 name="color"
                 type="text"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
+                value={pet.color}
+                onChange={(e) => handlePetChange("color", e.target.value)}
                 placeholder="例如：橘白、纯黑、奶油色"
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500"
               />
@@ -99,8 +108,8 @@ export default function CreatePetPage() {
               <select
                 id="size"
                 name="size"
-                value={size}
-                onChange={(e) => setSize(e.target.value)}
+                value={pet.size}
+                onChange={(e) => handlePetChange("size", e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500"
               >
                 <option value="">请选择体型</option>
@@ -121,8 +130,8 @@ export default function CreatePetPage() {
                 id="personality"
                 name="personality"
                 rows={4}
-                value={personality}
-                onChange={(e) => setPersonality(e.target.value)}
+                value={pet.personality}
+                onChange={(e) => handlePetChange("personality", e.target.value)}
                 placeholder="例如：很黏人，喜欢撒娇，看到新朋友会先观察一下。"
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500"
               />
@@ -139,8 +148,8 @@ export default function CreatePetPage() {
                 id="specialTraits"
                 name="specialTraits"
                 rows={4}
-                value={specialTraits}
-                onChange={(e) => setSpecialTraits(e.target.value)}
+                value={pet.specialTraits}
+                onChange={(e) => handlePetChange("specialTraits", e.target.value)}
                 placeholder="例如：左耳有一点卷，尾巴尖是白色，脖子上有一圈浅色毛。"
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500"
               />
@@ -154,7 +163,7 @@ export default function CreatePetPage() {
               <button
                type="button"
                onClick={() => {
-                    alert(`宠物信息已读取：${petName || "未命名宠物"}`);
+                    alert(`宠物信息已读取：${pet.petName || "未命名宠物"}`);
                 }}
                 className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
               >
@@ -172,32 +181,32 @@ export default function CreatePetPage() {
             <div className="mt-6 space-y-4 text-sm text-gray-700">
               <div>
                 <span className="font-medium text-gray-900">名字：</span>
-                {petName || "暂未填写"}
+                {pet.petName || "暂未填写"}
               </div>
 
               <div>
                 <span className="font-medium text-gray-900">品种：</span>
-                {species || "暂未选择"}
+                {pet.species || "暂未选择"}
               </div>
 
               <div>
                 <span className="font-medium text-gray-900">主颜色：</span>
-                {color || "暂未填写"}
+                {pet.color || "暂未填写"}
               </div>
 
               <div>
                 <span className="font-medium text-gray-900">体型：</span>
-                {size || "暂未选择"}
+                {pet.size || "暂未选择"}
               </div>
 
               <div>
                 <span className="font-medium text-gray-900">性格：</span>
-                {personality || "暂未填写"}
+                {pet.personality || "暂未填写"}
               </div>
 
               <div>
                 <span className="font-medium text-gray-900">特殊特征：</span>
-                {specialTraits || "暂未填写"}
+                {pet.specialTraits || "暂未填写"}
               </div>
             </div>
           </section>
