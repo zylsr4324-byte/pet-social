@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Home() {
   return (
     <main className="min-h-screen bg-white text-gray-900">
@@ -17,6 +19,15 @@ export default function Home() {
 
         <div className="mt-8 rounded-xl border border-gray-200 bg-gray-50 px-6 py-4 text-sm text-gray-600">
           当前阶段：前端项目初始化成功，准备开始搭建首页和宠物创建功能。
+        </div>
+
+        <div className="mt-8">
+          <Link
+            href="/create-pet"
+            className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
+          >
+            去创建宠物
+          </Link>
         </div>
       </div>
     </main>
