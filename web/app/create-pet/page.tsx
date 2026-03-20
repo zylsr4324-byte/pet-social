@@ -20,6 +20,17 @@ export default function CreatePetPage() {
     }));
   };
 
+  const petCardName = pet.petName || "未命名宠物";
+  const petCardSpecies = pet.species || "待选择品种";
+  const petCardColor = pet.color || "待补充颜色";
+  const petCardSize = pet.size || "待选择体型";
+  const petCardPersonality =
+    pet.personality ||
+    "这里会显示宠物的性格摘要，比如温柔、活泼、黏人，或者有一点自己的小脾气。";
+  const petCardSpecialTraits =
+    pet.specialTraits ||
+    "这里会显示宠物的特殊特征，比如毛色细节、耳朵形状、尾巴特点，或者很容易被记住的小标记。";
+
   return (
     <main className="min-h-screen bg-white px-6 py-12 text-gray-900">
       <div className="mx-auto max-w-5xl">
@@ -172,41 +183,91 @@ export default function CreatePetPage() {
             </div>
           </form>
 
-          <section className="rounded-2xl border border-gray-200 bg-gray-50 p-6 shadow-sm">
-            <h2 className="text-2xl font-semibold">宠物资料预览</h2>
-            <p className="mt-2 text-sm leading-6 text-gray-600">
-              这里会实时显示你当前填写的内容。
-            </p>
-
-            <div className="mt-6 space-y-4 text-sm text-gray-700">
+          <section className="rounded-[28px] border border-orange-100 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 shadow-sm">
+            <div className="flex items-start justify-between gap-4">
               <div>
-                <span className="font-medium text-gray-900">名字：</span>
-                {pet.petName || "暂未填写"}
+                <h2 className="text-2xl font-semibold text-gray-900">
+                  宠物资料预览
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-gray-600">
+                  右侧会把你当前填写的内容整理成更像产品里的宠物资料卡片。
+                </p>
               </div>
 
-              <div>
-                <span className="font-medium text-gray-900">品种：</span>
-                {pet.species || "暂未选择"}
+              <div className="rounded-full border border-white/80 bg-white/90 px-3 py-1 text-xs font-medium text-amber-700 shadow-sm">
+                实时同步
+              </div>
+            </div>
+
+            <div className="mt-6 overflow-hidden rounded-[28px] border border-orange-100 bg-white shadow-[0_20px_60px_-24px_rgba(180,83,9,0.35)]">
+              <div className="bg-gradient-to-br from-orange-100 via-amber-50 to-white p-6">
+                <div className="flex items-start gap-4">
+                  <div className="flex flex-col items-center">
+                    <div className="flex h-24 w-24 items-center justify-center rounded-full bg-white text-lg font-semibold text-amber-700 shadow-sm ring-8 ring-white/70">
+                      {pet.petName ? pet.petName.slice(0, 1) : "头像"}
+                    </div>
+                    <span className="mt-3 rounded-full bg-white/80 px-3 py-1 text-xs text-gray-500 shadow-sm">
+                      头像占位
+                    </span>
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-amber-700">
+                      宠物资料卡片
+                    </p>
+                    <h3 className="mt-2 text-3xl font-semibold tracking-tight text-gray-900">
+                      {petCardName}
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-gray-600">
+                      当前资料会根据左侧输入实时更新，方便你快速确认宠物设定是否完整。
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl bg-white/80 p-4 shadow-sm ring-1 ring-white/70">
+                    <p className="text-xs font-medium text-gray-500">品种</p>
+                    <p className="mt-2 text-sm font-semibold text-gray-900">
+                      {petCardSpecies}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-white/80 p-4 shadow-sm ring-1 ring-white/70">
+                    <p className="text-xs font-medium text-gray-500">主颜色</p>
+                    <p className="mt-2 text-sm font-semibold text-gray-900">
+                      {petCardColor}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-white/80 p-4 shadow-sm ring-1 ring-white/70">
+                    <p className="text-xs font-medium text-gray-500">体型</p>
+                    <p className="mt-2 text-sm font-semibold text-gray-900">
+                      {petCardSize}
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <span className="font-medium text-gray-900">主颜色：</span>
-                {pet.color || "暂未填写"}
-              </div>
+              <div className="space-y-4 p-6">
+                <div className="rounded-2xl bg-gray-50 p-4">
+                  <p className="text-sm font-medium text-gray-900">性格摘要</p>
+                  <p className="mt-3 text-sm leading-7 text-gray-600">
+                    {petCardPersonality}
+                  </p>
+                </div>
 
-              <div>
-                <span className="font-medium text-gray-900">体型：</span>
-                {pet.size || "暂未选择"}
-              </div>
+                <div className="rounded-2xl bg-gray-50 p-4">
+                  <p className="text-sm font-medium text-gray-900">
+                    特殊特征摘要
+                  </p>
+                  <p className="mt-3 text-sm leading-7 text-gray-600">
+                    {petCardSpecialTraits}
+                  </p>
+                </div>
 
-              <div>
-                <span className="font-medium text-gray-900">性格：</span>
-                {pet.personality || "暂未填写"}
-              </div>
-
-              <div>
-                <span className="font-medium text-gray-900">特殊特征：</span>
-                {pet.specialTraits || "暂未填写"}
+                <div className="rounded-2xl border border-dashed border-orange-200 bg-orange-50/70 p-4 text-sm leading-6 text-gray-600">
+                  这张资料卡会随着你的输入继续完善。后续如果要接头像、标签或更多设定，也可以直接在这里继续扩展。
+                </div>
               </div>
             </div>
           </section>
