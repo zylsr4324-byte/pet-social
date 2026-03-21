@@ -36,3 +36,4 @@
 1. 在项目根目录执行 `docker compose up --build`
 2. 打开 `http://localhost:8000/health` 查看后端健康状态
 3. 打开 `http://localhost:8000/docs` 查看 FastAPI 自动文档
+4. 在 `/docs` 里直接测试 `POST /pets`、`GET /pets/{pet_id}`、`PUT /pets/{pet_id}`
