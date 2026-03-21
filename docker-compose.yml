@@ -1,0 +1,50 @@
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: pet-agent-social-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./api:/app
+    environment:
+      APP_NAME: Pet Agent Social API
+      APP_ENV: development
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: pet_agent_social
+      POSTGRES_USER: pet_agent
+      POSTGRES_PASSWORD: pet_agent_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: pet-agent-social-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: pet_agent_social
+      POSTGRES_USER: pet_agent
+      POSTGRES_PASSWORD: pet_agent_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: pet-agent-social-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:

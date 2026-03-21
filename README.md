@@ -28,3 +28,11 @@
 - 已创建项目目录
 - 已初始化 Git
 - 已创建 web / api / docs 基础结构
+
+## 后端本地启动
+
+后端当前是最小 FastAPI 骨架，并已准备好 PostgreSQL 和 Redis 的本地开发环境。
+
+1. 在项目根目录执行 `docker compose up --build`
+2. 打开 `http://localhost:8000/health` 查看后端健康状态
+3. 打开 `http://localhost:8000/docs` 查看 FastAPI 自动文档
