@@ -206,6 +206,87 @@ const getAppearanceSummary = (pet: PetProfile) => {
   return `它看起来像一只${appearanceCore}，整体外貌轮廓已经有一点清晰了，继续补充细节会更生动。`;
 };
 
+const getTemperamentTag = (personality: string) => {
+  if (personality.includes("高冷")) {
+    return {
+      label: "高冷系",
+      note: "慢热但自带距离感",
+      className: "border-slate-200 bg-slate-50 text-slate-700",
+    };
+  }
+
+  if (personality.includes("活泼")) {
+    return {
+      label: "活泼系",
+      note: "出场就很有存在感",
+      className: "border-amber-200 bg-amber-50 text-amber-700",
+    };
+  }
+
+  if (personality.includes("黏人") || personality.includes("撒娇")) {
+    return {
+      label: "黏人系",
+      note: "很容易靠近，也很会表达喜欢",
+      className: "border-rose-200 bg-rose-50 text-rose-700",
+    };
+  }
+
+  if (personality.includes("好奇")) {
+    return {
+      label: "好奇系",
+      note: "对新朋友和新环境都很感兴趣",
+      className: "border-sky-200 bg-sky-50 text-sky-700",
+    };
+  }
+
+  if (personality.includes("傲娇")) {
+    return {
+      label: "傲娇系",
+      note: "嘴上不说，态度却很有戏",
+      className: "border-orange-200 bg-orange-50 text-orange-700",
+    };
+  }
+
+  return {
+    label: "性格待探索",
+    note: "等你补充更多性格线索",
+    className: "border-gray-200 bg-white text-gray-500",
+  };
+};
+
+const getSocialStatus = (pet: PetProfile) => {
+  const hasAnyInfo = Boolean(
+    pet.petName ||
+      pet.species ||
+      pet.color ||
+      pet.size ||
+      pet.personality ||
+      pet.specialTraits
+  );
+
+  if (!hasAnyInfo) {
+    return {
+      label: "新朋友",
+      note: "刚刚来到这里，准备慢慢认识大家",
+      className: "border-sky-200 bg-sky-50 text-sky-700",
+    };
+  }
+
+  if (pet.petName && pet.species) {
+    return {
+      label: "准备社交",
+      note: "基本身份已经清晰，可以开始结识其他宠物了",
+      className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    };
+  }
+
+  return {
+    label: "熟悉中",
+    note: "资料正在慢慢补全，先从认识它开始",
+    className: "border-amber-200 bg-amber-50 text-amber-700",
+  };
+};
+
 export default function MyPetPage() {
   const [pet, setPet] = useState<PetProfile | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -244,7 +325,18 @@ export default function MyPetPage() {
   const petSpeciesVisual = getSpeciesVisual(pet?.species || "");
   const petColorDisplay = getColorDisplay(pet?.color || "");
   const petSizeDisplay = getSizeDisplay(pet?.size || "");
+  const petTemperamentTag = getTemperamentTag(pet?.personality || "");
   const petAppearanceSummary = getAppearanceSummary(
+    pet || {
+      petName: "",
+      species: "",
+      color: "",
+      size: "",
+      personality: "",
+      specialTraits: "",
+    }
+  );
+  const petSocialStatus = getSocialStatus(
     pet || {
       petName: "",
       species: "",
@@ -406,6 +498,36 @@ export default function MyPetPage() {
                   <p className="mt-3 text-sm leading-7 text-gray-600">
                     {petAppearanceSummary}
                   </p>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-orange-100 bg-white/75 p-4 shadow-sm">
+                    <p className="text-sm font-medium text-gray-900">气质标签</p>
+                    <div className="mt-3 flex items-start gap-3">
+                      <span
+                        className={`inline-flex rounded-full border px-3 py-1 text-sm font-semibold ${petTemperamentTag.className}`}
+                      >
+                        {petTemperamentTag.label}
+                      </span>
+                      <p className="min-w-0 text-sm leading-6 text-gray-600">
+                        {petTemperamentTag.note}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-orange-100 bg-white/75 p-4 shadow-sm">
+                    <p className="text-sm font-medium text-gray-900">社交状态</p>
+                    <div className="mt-3 flex items-start gap-3">
+                      <span
+                        className={`inline-flex rounded-full border px-3 py-1 text-sm font-semibold ${petSocialStatus.className}`}
+                      >
+                        {petSocialStatus.label}
+                      </span>
+                      <p className="min-w-0 text-sm leading-6 text-gray-600">
+                        {petSocialStatus.note}
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-dashed border-orange-200 bg-orange-50/70 p-4 text-sm leading-6 text-gray-600">
