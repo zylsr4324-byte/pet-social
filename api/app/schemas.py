@@ -37,11 +37,22 @@ class PetDetailResponse(BaseModel):
     pet: PetResponse
 
 
+class MessageResponse(BaseModel):
+    id: int
+    pet_id: int
+    role: str
+    content: str
+    created_at: datetime
+
+
+class MessageListResponse(BaseModel):
+    messages: list[MessageResponse]
+
+
 class PetChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=500)
 
 
 class PetChatResponse(BaseModel):
-    message: str
-    petName: str
-    reply: str
+    user_message: MessageResponse
+    pet_message: MessageResponse

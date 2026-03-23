@@ -23,16 +23,21 @@ type PetApiResponse = {
   pet: ApiPet;
 };
 
-type PetChatResponse = {
-  message: string;
-  petName: string;
-  reply: string;
-};
-
 type ChatMessage = {
-  id: string;
+  id: number;
+  pet_id: number;
   role: "user" | "pet";
   content: string;
+  created_at: string;
+};
+
+type MessageListResponse = {
+  messages: ChatMessage[];
+};
+
+type ChatResponse = {
+  user_message: ChatMessage;
+  pet_message: ChatMessage;
 };
 
 const PET_ID_STORAGE_KEY = "pet-agent-social:pet-id";
@@ -70,7 +75,33 @@ const isPetApiResponse = (value: unknown): value is PetApiResponse => {
   );
 };
 
-const isPetChatResponse = (value: unknown): value is PetChatResponse => {
+const isChatMessage = (value: unknown): value is ChatMessage => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const message = value as Record<string, unknown>;
+
+  return (
+    typeof message.id === "number" &&
+    typeof message.pet_id === "number" &&
+    (message.role === "user" || message.role === "pet") &&
+    typeof message.content === "string" &&
+    typeof message.created_at === "string"
+  );
+};
+
+const isMessageListResponse = (value: unknown): value is MessageListResponse => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const response = value as Record<string, unknown>;
+
+  return Array.isArray(response.messages) && response.messages.every(isChatMessage);
+};
+
+const isChatResponse = (value: unknown): value is ChatResponse => {
   if (!value || typeof value !== "object") {
     return false;
   }
@@ -78,9 +109,7 @@ const isPetChatResponse = (value: unknown): value is PetChatResponse => {
   const response = value as Record<string, unknown>;
 
   return (
-    typeof response.message === "string" &&
-    typeof response.petName === "string" &&
-    typeof response.reply === "string"
+    isChatMessage(response.user_message) && isChatMessage(response.pet_message)
   );
 };
 
@@ -141,7 +170,7 @@ export default function ChatPage() {
   const [petName, setPetName] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
-  const [isLoadingPet, setIsLoadingPet] = useState(true);
+  const [isLoadingChat, setIsLoadingChat] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{
     type: "error" | "info";
@@ -151,7 +180,7 @@ export default function ChatPage() {
   useEffect(() => {
     let isMounted = true;
 
-    const loadPet = async () => {
+    const loadChat = async () => {
       try {
         const storedPetId = readStoredPetId();
 
@@ -168,37 +197,16 @@ export default function ChatPage() {
           return;
         }
 
-        const response = await fetch(`${API_BASE_URL}/pets/${storedPetId}`, {
-          cache: "no-store",
-        });
+        const [petResponse, messagesResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/pets/${storedPetId}`, {
+            cache: "no-store",
+          }),
+          fetch(`${API_BASE_URL}/pets/${storedPetId}/messages`, {
+            cache: "no-store",
+          }),
+        ]);
 
-        if (response.ok) {
-          const data: unknown = await response.json();
-
-          if (isMounted && isPetApiResponse(data)) {
-            const currentPetName = data.pet.petName || "你的宠物";
-
-            setPetId(data.pet.id);
-            setPetName(currentPetName);
-            setMessages([
-              {
-                id: "pet-welcome",
-                role: "pet",
-                content: `我是${currentPetName}，今天想和我聊点什么？`,
-              },
-            ]);
-            setStatusMessage(null);
-          } else if (isMounted) {
-            setStatusMessage({
-              type: "error",
-              message: "后端返回的数据格式不太对，请稍后再试。",
-            });
-          }
-
-          return;
-        }
-
-        if (response.status === 404) {
+        if (petResponse.status === 404 || messagesResponse.status === 404) {
           clearStoredPetId();
 
           if (isMounted) {
@@ -214,16 +222,57 @@ export default function ChatPage() {
           return;
         }
 
-        const errorMessage = await getResponseErrorMessage(
-          response,
-          "加载宠物资料失败，请稍后再试。"
-        );
+        if (!petResponse.ok) {
+          const errorMessage = await getResponseErrorMessage(
+            petResponse,
+            "加载宠物资料失败，请稍后再试。"
+          );
+
+          if (isMounted) {
+            setStatusMessage({
+              type: "error",
+              message: errorMessage,
+            });
+          }
+
+          return;
+        }
+
+        if (!messagesResponse.ok) {
+          const errorMessage = await getResponseErrorMessage(
+            messagesResponse,
+            "加载聊天记录失败，请稍后再试。"
+          );
+
+          if (isMounted) {
+            setStatusMessage({
+              type: "error",
+              message: errorMessage,
+            });
+          }
+
+          return;
+        }
+
+        const petData: unknown = await petResponse.json();
+        const messagesData: unknown = await messagesResponse.json();
+
+        if (!isPetApiResponse(petData) || !isMessageListResponse(messagesData)) {
+          if (isMounted) {
+            setStatusMessage({
+              type: "error",
+              message: "后端返回的数据格式不太对，请稍后再试。",
+            });
+          }
+
+          return;
+        }
 
         if (isMounted) {
-          setStatusMessage({
-            type: "error",
-            message: errorMessage,
-          });
+          setPetId(petData.pet.id);
+          setPetName(petData.pet.petName || "你的宠物");
+          setMessages(messagesData.messages);
+          setStatusMessage(null);
         }
       } catch {
         if (isMounted) {
@@ -234,12 +283,12 @@ export default function ChatPage() {
         }
       } finally {
         if (isMounted) {
-          setIsLoadingPet(false);
+          setIsLoadingChat(false);
         }
       }
     };
 
-    void loadPet();
+    void loadChat();
 
     return () => {
       isMounted = false;
@@ -255,16 +304,8 @@ export default function ChatPage() {
       return;
     }
 
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      content: trimmedMessage,
-    };
-
-    setMessages((currentMessages) => [...currentMessages, userMessage]);
-    setInputValue("");
-    setStatusMessage(null);
     setIsSending(true);
+    setStatusMessage(null);
 
     try {
       const response = await fetch(`${API_BASE_URL}/pets/${petId}/chat`, {
@@ -277,19 +318,19 @@ export default function ChatPage() {
         }),
       });
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          clearStoredPetId();
-          setPetId(null);
-          setPetName("");
-          setMessages([]);
-          setStatusMessage({
-            type: "error",
-            message: MISSING_PET_MESSAGE,
-          });
-          return;
-        }
+      if (response.status === 404) {
+        clearStoredPetId();
+        setPetId(null);
+        setPetName("");
+        setMessages([]);
+        setStatusMessage({
+          type: "error",
+          message: MISSING_PET_MESSAGE,
+        });
+        return;
+      }
 
+      if (!response.ok) {
         const errorMessage = await getResponseErrorMessage(
           response,
           "这次没有收到宠物回复，请稍后再试。"
@@ -304,7 +345,7 @@ export default function ChatPage() {
 
       const data: unknown = await response.json();
 
-      if (!isPetChatResponse(data)) {
+      if (!isChatResponse(data)) {
         setStatusMessage({
           type: "error",
           message: "后端返回的数据格式不太对，请稍后再试。",
@@ -312,15 +353,12 @@ export default function ChatPage() {
         return;
       }
 
-      setPetName(data.petName || petName);
       setMessages((currentMessages) => [
         ...currentMessages,
-        {
-          id: `pet-${Date.now()}`,
-          role: "pet",
-          content: data.reply,
-        },
+        data.user_message,
+        data.pet_message,
       ]);
+      setInputValue("");
     } catch {
       setStatusMessage({
         type: "error",
@@ -346,19 +384,19 @@ export default function ChatPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold sm:text-4xl">和宠物聊天</h1>
           <p className="mt-3 text-base leading-7 text-gray-600">
-            这一版先做最小可运行链路。你说一句话，宠物会先给你一条简单自然的假回复。
+            这次聊天记录会保存到后端。刷新页面后，你和宠物刚刚说过的话还会在这里。
           </p>
         </div>
 
-        {isLoadingPet ? (
+        {isLoadingChat ? (
           <section className="rounded-2xl border border-gray-200 bg-gray-50 p-6 shadow-sm">
             <p className="text-sm leading-6 text-gray-600">
-              正在读取宠物资料，请稍等一下。
+              正在读取宠物资料和聊天记录，请稍等一下。
             </p>
           </section>
         ) : null}
 
-        {!isLoadingPet && !petId ? (
+        {!isLoadingChat && !petId ? (
           <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 shadow-sm">
             <h2 className="text-2xl font-semibold text-gray-900">
               现在还不能开始聊天
@@ -385,7 +423,7 @@ export default function ChatPage() {
           </section>
         ) : null}
 
-        {!isLoadingPet && petId ? (
+        {!isLoadingChat && petId ? (
           <section className="rounded-[28px] border border-orange-100 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 shadow-sm">
             <div className="rounded-[28px] border border-orange-100 bg-white shadow-[0_20px_60px_-24px_rgba(180,83,9,0.35)]">
               <div className="border-b border-orange-100 bg-gradient-to-r from-orange-100 via-amber-50 to-white px-6 py-5">
@@ -394,7 +432,7 @@ export default function ChatPage() {
                   正在和 {petName} 聊天
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-gray-600">
-                  先从一句简单的话开始吧。现在的回复还是占位版本，但已经能走通完整前后端链路。
+                  现在的回复还是最小版本，但聊天记录已经会保存在后端了。
                 </p>
               </div>
 
@@ -411,28 +449,38 @@ export default function ChatPage() {
                   </div>
                 ) : null}
 
-                <div className="min-h-[320px] space-y-3 rounded-2xl bg-gray-50 p-4">
-                  {messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`flex ${
-                        message.role === "user" ? "justify-end" : "justify-start"
-                      }`}
-                    >
-                      <div
-                        className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${
-                          message.role === "user"
-                            ? "bg-gray-900 text-white"
-                            : "bg-white text-gray-700"
-                        }`}
-                      >
-                        <p className="mb-1 text-xs font-medium opacity-70">
-                          {message.role === "user" ? "你" : petName}
-                        </p>
-                        <p>{message.content}</p>
-                      </div>
+                <div className="min-h-[320px] rounded-2xl bg-gray-50 p-4">
+                  {messages.length === 0 ? (
+                    <div className="flex min-h-[288px] items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white/70 px-6 text-center text-sm leading-6 text-gray-500">
+                      还没有聊天记录，先和 {petName} 打个招呼吧。
                     </div>
-                  ))}
+                  ) : (
+                    <div className="space-y-3">
+                      {messages.map((message) => (
+                        <div
+                          key={message.id}
+                          className={`flex ${
+                            message.role === "user"
+                              ? "justify-end"
+                              : "justify-start"
+                          }`}
+                        >
+                          <div
+                            className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm ${
+                              message.role === "user"
+                                ? "bg-gray-900 text-white"
+                                : "bg-white text-gray-700"
+                            }`}
+                          >
+                            <p className="mb-1 text-xs font-medium opacity-70">
+                              {message.role === "user" ? "你" : petName}
+                            </p>
+                            <p>{message.content}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <form

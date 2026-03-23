@@ -5,8 +5,10 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import create_tables, get_db
-from app.models import Pet
+from app.models import Message, Pet
 from app.schemas import (
+    MessageListResponse,
+    MessageResponse,
     PetChatRequest,
     PetChatResponse,
     PetCreate,
@@ -77,6 +79,16 @@ def build_pet_response(pet: Pet) -> PetResponse:
         specialTraits=pet.special_traits,
         createdAt=pet.created_at,
         updatedAt=pet.updated_at,
+    )
+
+
+def build_message_response(message: Message) -> MessageResponse:
+    return MessageResponse(
+        id=message.id,
+        pet_id=message.pet_id,
+        role=message.role,
+        content=message.content,
+        created_at=message.created_at,
     )
 
 
@@ -174,21 +186,61 @@ def update_pet(
     )
 
 
+@app.get("/pets/{pet_id}/messages", response_model=MessageListResponse)
+def read_pet_messages(
+    pet_id: int, db: Session = Depends(get_db)
+) -> MessageListResponse:
+    get_pet_or_404(db, pet_id)
+    messages = (
+        db.query(Message)
+        .filter(Message.pet_id == pet_id)
+        .order_by(Message.created_at.asc(), Message.id.asc())
+        .all()
+    )
+
+    return MessageListResponse(
+        messages=[build_message_response(message) for message in messages]
+    )
+
+
 @app.post("/pets/{pet_id}/chat", response_model=PetChatResponse)
 def chat_with_pet(
     pet_id: int, payload: PetChatRequest, db: Session = Depends(get_db)
 ) -> PetChatResponse:
     pet = get_pet_or_404(db, pet_id)
-    user_message = payload.message.strip()
+    user_text = payload.message.strip()
 
-    if not user_message:
+    if not user_text:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="消息内容不能为空。",
         )
 
+    user_message = Message(
+        pet_id=pet.id,
+        role="user",
+        content=user_text,
+    )
+    pet_message = Message(
+        pet_id=pet.id,
+        role="pet",
+        content=build_fake_pet_reply(pet, user_text),
+    )
+
+    try:
+        db.add(user_message)
+        db.add(pet_message)
+        db.commit()
+        db.refresh(user_message)
+        db.refresh(pet_message)
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="聊天消息保存失败，请稍后再试。",
+        ) from error
+
     return PetChatResponse(
-        message="宠物回复生成成功。",
-        petName=pet.pet_name,
-        reply=build_fake_pet_reply(pet, user_message),
+        user_message=build_message_response(user_message),
+        pet_message=build_message_response(pet_message),
     )
