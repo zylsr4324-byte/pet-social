@@ -1,4 +1,5 @@
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -8,8 +9,19 @@ from app.models import Pet
 from app.schemas import PetCreate, PetDetailResponse, PetResponse, PetUpdate
 
 settings = get_settings()
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
 
 app = FastAPI(title=settings.app_name)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.on_event("startup")
