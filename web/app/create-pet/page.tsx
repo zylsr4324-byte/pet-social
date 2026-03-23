@@ -12,7 +12,28 @@ type PetProfile = {
   specialTraits: string;
 };
 
-const PET_STORAGE_KEY = "pet-agent-social:pet-profile";
+type ApiPet = PetProfile & {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type PetApiResponse = {
+  message: string;
+  pet: ApiPet;
+};
+
+const PET_ID_STORAGE_KEY = "pet-agent-social:pet-id";
+const LEGACY_PET_STORAGE_KEY = "pet-agent-social:pet-profile";
+const API_BASE_URL = "http://localhost:8000";
+const EMPTY_PET: PetProfile = {
+  petName: "",
+  species: "",
+  color: "",
+  size: "",
+  personality: "",
+  specialTraits: "",
+};
 
 const isPetProfile = (value: unknown): value is PetProfile => {
   if (!value || typeof value !== "object") {
@@ -29,6 +50,92 @@ const isPetProfile = (value: unknown): value is PetProfile => {
     typeof pet.personality === "string" &&
     typeof pet.specialTraits === "string"
   );
+};
+
+const isPetApiResponse = (value: unknown): value is PetApiResponse => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const response = value as Record<string, unknown>;
+
+  return (
+    typeof response.message === "string" &&
+    isPetProfile(response.pet) &&
+    typeof (response.pet as { id?: unknown }).id === "number"
+  );
+};
+
+const mapApiPetToProfile = (pet: ApiPet): PetProfile => ({
+  petName: pet.petName,
+  species: pet.species,
+  color: pet.color,
+  size: pet.size,
+  personality: pet.personality,
+  specialTraits: pet.specialTraits,
+});
+
+const readStoredPetId = () => {
+  const storedPetId = window.localStorage.getItem(PET_ID_STORAGE_KEY);
+
+  if (!storedPetId) {
+    return null;
+  }
+
+  const parsedPetId = Number(storedPetId);
+
+  if (Number.isInteger(parsedPetId) && parsedPetId > 0) {
+    return parsedPetId;
+  }
+
+  window.localStorage.removeItem(PET_ID_STORAGE_KEY);
+  return null;
+};
+
+const readLegacyPetProfile = () => {
+  try {
+    const storedPet = window.localStorage.getItem(LEGACY_PET_STORAGE_KEY);
+
+    if (!storedPet) {
+      return null;
+    }
+
+    const parsedPet = JSON.parse(storedPet);
+    return isPetProfile(parsedPet) ? parsedPet : null;
+  } catch {
+    return null;
+  }
+};
+
+const getResponseErrorMessage = async (
+  response: Response,
+  fallbackMessage: string
+) => {
+  try {
+    const data = await response.json();
+
+    if (
+      data &&
+      typeof data === "object" &&
+      "detail" in data &&
+      typeof data.detail === "string"
+    ) {
+      return data.detail;
+    }
+
+    if (
+      data &&
+      typeof data === "object" &&
+      "message" in data &&
+      typeof data.message === "string"
+    ) {
+      return data.message;
+    }
+  } catch {
+    return fallbackMessage;
+  }
+
+  return fallbackMessage;
 };
 
 const getSpeciesVisual = (species: string) => {
@@ -288,39 +395,120 @@ const getSocialStatus = (pet: PetProfile) => {
 };
 
 export default function CreatePetPage() {
-  const [pet, setPet] = useState<PetProfile>({
-    petName: "",
-    species: "",
-    color: "",
-    size: "",
-    personality: "",
-    specialTraits: "",
-  });
+  const [pet, setPet] = useState<PetProfile>(EMPTY_PET);
+  const [petId, setPetId] = useState<number | null>(null);
+  const [isLoadingPet, setIsLoadingPet] = useState(true);
+  const [isSavingPet, setIsSavingPet] = useState(false);
   const [feedback, setFeedback] = useState<{
     type: "success" | "error" | "info";
     message: string;
   } | null>(null);
 
   useEffect(() => {
-    try {
-      const savedPet = window.localStorage.getItem(PET_STORAGE_KEY);
+    let isMounted = true;
 
-      if (!savedPet) {
-        return;
+    const loadPet = async () => {
+      try {
+        const storedPetId = readStoredPetId();
+
+        if (storedPetId) {
+          const response = await fetch(`${API_BASE_URL}/pets/${storedPetId}`, {
+            cache: "no-store",
+          });
+
+          if (response.ok) {
+            const data: unknown = await response.json();
+
+            if (isMounted && isPetApiResponse(data)) {
+              const loadedPet = mapApiPetToProfile(data.pet);
+
+              setPetId(data.pet.id);
+              setPet(loadedPet);
+              window.localStorage.setItem(
+                PET_ID_STORAGE_KEY,
+                String(data.pet.id)
+              );
+              window.localStorage.removeItem(LEGACY_PET_STORAGE_KEY);
+              setFeedback({
+                type: "info",
+                message: `已为你加载${loadedPet.petName || "宠物"}的资料，可以直接继续编辑。`,
+              });
+            } else if (isMounted) {
+              setFeedback({
+                type: "error",
+                message: "后端返回的数据格式不太对，请稍后再试。",
+              });
+            }
+
+            return;
+          }
+
+          if (response.status === 404) {
+            window.localStorage.removeItem(PET_ID_STORAGE_KEY);
+
+            const legacyPet = readLegacyPetProfile();
+
+            if (isMounted && legacyPet) {
+              setPet(legacyPet);
+              setFeedback({
+                type: "info",
+                message:
+                  "已读取你之前保存在本地的宠物资料，重新保存后会同步到后端。",
+              });
+            } else if (isMounted) {
+              setFeedback({
+                type: "error",
+                message: "之前保存的宠物资料找不到了，请重新填写后再保存。",
+              });
+            }
+
+            return;
+          }
+
+          const errorMessage = await getResponseErrorMessage(
+            response,
+            "加载宠物资料失败，请稍后再试。"
+          );
+
+          if (isMounted) {
+            setFeedback({
+              type: "error",
+              message: errorMessage,
+            });
+          }
+
+          return;
+        }
+
+        const legacyPet = readLegacyPetProfile();
+
+        if (isMounted && legacyPet) {
+          setPet(legacyPet);
+          setFeedback({
+            type: "info",
+            message:
+              "已读取你之前保存在本地的宠物资料，重新保存后会同步到后端。",
+          });
+        }
+      } catch {
+        if (isMounted) {
+          setFeedback({
+            type: "error",
+            message: "暂时连不上后端，请确认服务已启动。",
+          });
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingPet(false);
+        }
       }
+    };
 
-      const parsedPet = JSON.parse(savedPet);
+    void loadPet();
 
-      if (isPetProfile(parsedPet)) {
-        setPet(parsedPet);
-        setFeedback({
-          type: "info",
-          message: `已为你加载上次保存的${parsedPet.petName || "宠物"}资料，可以直接继续编辑。`,
-        });
-      }
-    } catch {
-      setFeedback(null);
-    }
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handlePetChange = (field: keyof PetProfile, value: string) => {
@@ -331,18 +519,74 @@ export default function CreatePetPage() {
     setFeedback(null);
   };
 
-  const handleSavePet = () => {
+  const handleSavePet = async () => {
+    setIsSavingPet(true);
+
     try {
-      window.localStorage.setItem(PET_STORAGE_KEY, JSON.stringify(pet));
+      const isUpdating = petId !== null;
+      const response = await fetch(
+        isUpdating ? `${API_BASE_URL}/pets/${petId}` : `${API_BASE_URL}/pets`,
+        {
+          method: isUpdating ? "PUT" : "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(pet),
+        }
+      );
+
+      if (!response.ok) {
+        if (response.status === 404 && isUpdating) {
+          window.localStorage.removeItem(PET_ID_STORAGE_KEY);
+          setPetId(null);
+          setFeedback({
+            type: "error",
+            message: "之前保存的宠物资料找不到了，请重新保存创建一次。",
+          });
+          return;
+        }
+
+        const errorMessage = await getResponseErrorMessage(
+          response,
+          "这次保存没有成功，请稍后再试一次。"
+        );
+
+        setFeedback({
+          type: "error",
+          message: errorMessage,
+        });
+        return;
+      }
+
+      const data: unknown = await response.json();
+
+      if (!isPetApiResponse(data)) {
+        setFeedback({
+          type: "error",
+          message: "后端返回的数据格式不太对，请稍后再试。",
+        });
+        return;
+      }
+
+      const savedPet = mapApiPetToProfile(data.pet);
+
+      setPetId(data.pet.id);
+      setPet(savedPet);
+      window.localStorage.setItem(PET_ID_STORAGE_KEY, String(data.pet.id));
+      window.localStorage.removeItem(LEGACY_PET_STORAGE_KEY);
       setFeedback({
         type: "success",
-        message: `已保存${pet.petName || "这只宠物"}的资料，现在可以去“我的宠物”页面查看。`,
+        message: isUpdating
+          ? "宠物资料已更新并同步到后端。"
+          : "宠物资料已创建并同步到后端。",
       });
     } catch {
       setFeedback({
         type: "error",
-        message: "这次保存没有成功，请稍后再试一次。",
+        message: "暂时连不上后端，请确认服务已启动。",
       });
+    } finally {
+      setIsSavingPet(false);
     }
   };
 
@@ -393,6 +637,7 @@ export default function CreatePetPage() {
                 id="petName"
                 name="petName"
                 type="text"
+                disabled={isLoadingPet || isSavingPet}
                 value={pet.petName}
                 onChange={(e) => handlePetChange("petName", e.target.value)}
                 placeholder="例如：小泡芙"
@@ -410,6 +655,7 @@ export default function CreatePetPage() {
               <select
                 id="species"
                 name="species"
+                disabled={isLoadingPet || isSavingPet}
                 value={pet.species}
                 onChange={(e) => handlePetChange("species", e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500"
@@ -434,6 +680,7 @@ export default function CreatePetPage() {
                 id="color"
                 name="color"
                 type="text"
+                disabled={isLoadingPet || isSavingPet}
                 value={pet.color}
                 onChange={(e) => handlePetChange("color", e.target.value)}
                 placeholder="例如：橘白、纯黑、奶油色"
@@ -451,6 +698,7 @@ export default function CreatePetPage() {
               <select
                 id="size"
                 name="size"
+                disabled={isLoadingPet || isSavingPet}
                 value={pet.size}
                 onChange={(e) => handlePetChange("size", e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500"
@@ -473,6 +721,7 @@ export default function CreatePetPage() {
                 id="personality"
                 name="personality"
                 rows={4}
+                disabled={isLoadingPet || isSavingPet}
                 value={pet.personality}
                 onChange={(e) => handlePetChange("personality", e.target.value)}
                 placeholder="例如：很黏人，喜欢撒娇，看到新朋友会先观察一下。"
@@ -491,6 +740,7 @@ export default function CreatePetPage() {
                 id="specialTraits"
                 name="specialTraits"
                 rows={4}
+                disabled={isLoadingPet || isSavingPet}
                 value={pet.specialTraits}
                 onChange={(e) => handlePetChange("specialTraits", e.target.value)}
                 placeholder="例如：左耳有一点卷，尾巴尖是白色，脖子上有一圈浅色毛。"
@@ -498,8 +748,14 @@ export default function CreatePetPage() {
               />
             </div>
 
+            {isLoadingPet ? (
+              <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-700">
+                正在读取你已经保存的宠物资料，请稍等一下。
+              </div>
+            ) : null}
+
             <div className="rounded-xl bg-gray-50 p-4 text-sm leading-6 text-gray-600">
-              现在这个页面已经能读取你的输入了。下一步我们会让“保存宠物信息”按钮真正处理这些数据。
+              现在这个页面会把宠物资料同步到后端。保存完成后，你可以在“我的宠物”页面继续查看和编辑。
             </div>
 
             <div className="pt-2">
@@ -507,9 +763,14 @@ export default function CreatePetPage() {
                 <button
                   type="button"
                   onClick={handleSavePet}
-                  className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
+                  disabled={isLoadingPet || isSavingPet}
+                  className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  保存宠物信息
+                  {isSavingPet
+                    ? "保存中..."
+                    : petId
+                      ? "更新宠物信息"
+                      : "保存宠物信息"}
                 </button>
 
                 <Link

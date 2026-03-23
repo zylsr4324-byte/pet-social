@@ -12,7 +12,28 @@ type PetProfile = {
   specialTraits: string;
 };
 
-const PET_STORAGE_KEY = "pet-agent-social:pet-profile";
+type ApiPet = PetProfile & {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type PetApiResponse = {
+  message: string;
+  pet: ApiPet;
+};
+
+const PET_ID_STORAGE_KEY = "pet-agent-social:pet-id";
+const API_BASE_URL = "http://localhost:8000";
+const MISSING_PET_MESSAGE = "之前保存的宠物资料找不到了，请重新创建一次。";
+const EMPTY_PET: PetProfile = {
+  petName: "",
+  species: "",
+  color: "",
+  size: "",
+  personality: "",
+  specialTraits: "",
+};
 
 const isPetProfile = (value: unknown): value is PetProfile => {
   if (!value || typeof value !== "object") {
@@ -29,6 +50,86 @@ const isPetProfile = (value: unknown): value is PetProfile => {
     typeof pet.personality === "string" &&
     typeof pet.specialTraits === "string"
   );
+};
+
+const isPetApiResponse = (value: unknown): value is PetApiResponse => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const response = value as Record<string, unknown>;
+
+  return (
+    typeof response.message === "string" &&
+    isPetProfile(response.pet) &&
+    typeof (response.pet as { id?: unknown }).id === "number"
+  );
+};
+
+const mapApiPetToProfile = (pet: ApiPet): PetProfile => ({
+  petName: pet.petName,
+  species: pet.species,
+  color: pet.color,
+  size: pet.size,
+  personality: pet.personality,
+  specialTraits: pet.specialTraits,
+});
+
+const clearStoredPetId = () => {
+  window.localStorage.removeItem(PET_ID_STORAGE_KEY);
+
+  // 某些调试场景下，重复执行一次清理更稳妥，避免页面继续带着失效 id 进入下一次请求。
+  if (window.localStorage.getItem(PET_ID_STORAGE_KEY) !== null) {
+    window.localStorage.removeItem(PET_ID_STORAGE_KEY);
+  }
+};
+
+const readStoredPetId = () => {
+  const storedPetId = window.localStorage.getItem(PET_ID_STORAGE_KEY);
+
+  if (!storedPetId) {
+    return null;
+  }
+
+  const parsedPetId = Number(storedPetId);
+
+  if (Number.isInteger(parsedPetId) && parsedPetId > 0) {
+    return parsedPetId;
+  }
+
+  clearStoredPetId();
+  return null;
+};
+
+const getResponseErrorMessage = async (
+  response: Response,
+  fallbackMessage: string
+) => {
+  try {
+    const data = await response.json();
+
+    if (
+      data &&
+      typeof data === "object" &&
+      "detail" in data &&
+      typeof data.detail === "string"
+    ) {
+      return data.detail;
+    }
+
+    if (
+      data &&
+      typeof data === "object" &&
+      "message" in data &&
+      typeof data.message === "string"
+    ) {
+      return data.message;
+    }
+  } catch {
+    return fallbackMessage;
+  }
+
+  return fallbackMessage;
 };
 
 const getSpeciesVisual = (species: string) => {
@@ -290,26 +391,93 @@ const getSocialStatus = (pet: PetProfile) => {
 export default function MyPetPage() {
   const [pet, setPet] = useState<PetProfile | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{
+    type: "error" | "info";
+    message: string;
+  } | null>(null);
 
   useEffect(() => {
-    try {
-      const savedPet = window.localStorage.getItem(PET_STORAGE_KEY);
+    let isMounted = true;
 
-      if (!savedPet) {
-        setIsLoaded(true);
-        return;
+    const loadPet = async () => {
+      try {
+        const storedPetId = readStoredPetId();
+
+        if (!storedPetId) {
+          if (isMounted) {
+            setPet(null);
+            setStatusMessage(null);
+          }
+          return;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/pets/${storedPetId}`, {
+          cache: "no-store",
+        });
+
+        if (response.ok) {
+          const data: unknown = await response.json();
+
+          if (isMounted && isPetApiResponse(data)) {
+            setPet(mapApiPetToProfile(data.pet));
+            setStatusMessage(null);
+          } else if (isMounted) {
+            setPet(null);
+            setStatusMessage({
+              type: "error",
+              message: "后端返回的数据格式不太对，请稍后再试。",
+            });
+          }
+
+          return;
+        }
+
+        if (response.status === 404) {
+          clearStoredPetId();
+
+          if (isMounted) {
+            setPet(null);
+            setStatusMessage({
+              type: "error",
+              message: MISSING_PET_MESSAGE,
+            });
+          }
+
+          return;
+        }
+
+        const errorMessage = await getResponseErrorMessage(
+          response,
+          "加载宠物资料失败，请稍后再试。"
+        );
+
+        if (isMounted) {
+          setPet(null);
+          setStatusMessage({
+            type: "error",
+            message: errorMessage,
+          });
+        }
+      } catch {
+        if (isMounted) {
+          setPet(null);
+          setStatusMessage({
+            type: "error",
+            message: "暂时连不上后端，请确认服务已启动。",
+          });
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoaded(true);
+        }
       }
+    };
 
-      const parsedPet = JSON.parse(savedPet);
+    void loadPet();
 
-      if (isPetProfile(parsedPet)) {
-        setPet(parsedPet);
-      }
-    } catch {
-      setPet(null);
-    } finally {
-      setIsLoaded(true);
-    }
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const petCardName = pet?.petName || "未命名宠物";
@@ -327,25 +495,15 @@ export default function MyPetPage() {
   const petSizeDisplay = getSizeDisplay(pet?.size || "");
   const petTemperamentTag = getTemperamentTag(pet?.personality || "");
   const petAppearanceSummary = getAppearanceSummary(
-    pet || {
-      petName: "",
-      species: "",
-      color: "",
-      size: "",
-      personality: "",
-      specialTraits: "",
-    }
+    pet || EMPTY_PET
   );
-  const petSocialStatus = getSocialStatus(
-    pet || {
-      petName: "",
-      species: "",
-      color: "",
-      size: "",
-      personality: "",
-      specialTraits: "",
-    }
-  );
+  const petSocialStatus = getSocialStatus(pet || EMPTY_PET);
+  const emptyStateTitle = statusMessage
+    ? "暂时还看不到宠物资料"
+    : "你还没有创建宠物";
+  const emptyStateMessage =
+    statusMessage?.message ||
+    "先去创建你的第一只宠物吧。填写完成后保存，资料就会出现在这里。";
 
   return (
     <main className="min-h-screen bg-white px-6 py-12 text-gray-900">
@@ -377,10 +535,10 @@ export default function MyPetPage() {
         {isLoaded && !pet ? (
           <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 shadow-sm">
             <h2 className="text-2xl font-semibold text-gray-900">
-              你还没有创建宠物
+              {emptyStateTitle}
             </h2>
             <p className="mt-3 text-sm leading-7 text-gray-600">
-              先去创建你的第一只宠物吧。填写完成后保存，资料就会出现在这里。
+              {emptyStateMessage}
             </p>
 
             <div className="mt-6">
@@ -402,12 +560,12 @@ export default function MyPetPage() {
                   已保存的宠物资料
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-gray-600">
-                  这是你当前保存在本地的宠物资料卡片。
+                  这是你当前从后端读取到的宠物资料卡片。
                 </p>
               </div>
 
               <div className="rounded-full border border-white/80 bg-white/90 px-3 py-1 text-xs font-medium text-amber-700 shadow-sm">
-                本地已保存
+                后端已同步
               </div>
             </div>
 
@@ -434,7 +592,7 @@ export default function MyPetPage() {
                       {petCardName}
                     </h3>
                     <p className="mt-2 text-sm leading-6 text-gray-600">
-                      这些内容来自你上一次在创建页面手动保存的宠物资料。
+                      这些内容来自后端里当前保存的宠物资料。
                     </p>
 
                     <div className="mt-4 flex flex-wrap gap-2">
