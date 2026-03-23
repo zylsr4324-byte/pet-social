@@ -718,6 +718,13 @@ export default function MyPetPage() {
                     编辑我的宠物
                   </Link>
 
+                  <Link
+                    href="/chat"
+                    className="inline-flex rounded-lg bg-amber-100 px-5 py-3 text-sm font-medium text-amber-800 transition hover:bg-amber-200"
+                  >
+                    去和它聊天
+                  </Link>
+
                   <p className="text-sm text-gray-500">
                     想更新资料的话，回到创建页面继续编辑并重新保存一次就可以。
                   </p>

@@ -6,7 +6,14 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import create_tables, get_db
 from app.models import Pet
-from app.schemas import PetCreate, PetDetailResponse, PetResponse, PetUpdate
+from app.schemas import (
+    PetChatRequest,
+    PetChatResponse,
+    PetCreate,
+    PetDetailResponse,
+    PetResponse,
+    PetUpdate,
+)
 
 settings = get_settings()
 allowed_origins = [
@@ -85,6 +92,20 @@ def get_pet_or_404(db: Session, pet_id: int) -> Pet:
     return pet
 
 
+def build_fake_pet_reply(pet: Pet, user_message: str) -> str:
+    cleaned_message = user_message.strip()
+    reply_templates = [
+        f"我是{pet.pet_name}，我刚刚认真听到你说“{cleaned_message}”啦。",
+        f"{pet.pet_name}正歪着脑袋看你，像是在回应：“{cleaned_message}”。",
+        f"{pet.pet_name}轻轻晃了晃尾巴，已经把你说的“{cleaned_message}”记住了。",
+    ]
+    template_index = (len(cleaned_message) + len(pet.pet_name)) % len(
+        reply_templates
+    )
+
+    return reply_templates[template_index]
+
+
 @app.post("/pets", response_model=PetDetailResponse, status_code=status.HTTP_201_CREATED)
 def create_pet(payload: PetCreate, db: Session = Depends(get_db)) -> PetDetailResponse:
     pet = Pet(
@@ -150,4 +171,24 @@ def update_pet(
     return PetDetailResponse(
         message="宠物资料更新成功。",
         pet=build_pet_response(pet),
+    )
+
+
+@app.post("/pets/{pet_id}/chat", response_model=PetChatResponse)
+def chat_with_pet(
+    pet_id: int, payload: PetChatRequest, db: Session = Depends(get_db)
+) -> PetChatResponse:
+    pet = get_pet_or_404(db, pet_id)
+    user_message = payload.message.strip()
+
+    if not user_message:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="消息内容不能为空。",
+        )
+
+    return PetChatResponse(
+        message="宠物回复生成成功。",
+        petName=pet.pet_name,
+        reply=build_fake_pet_reply(pet, user_message),
     )
