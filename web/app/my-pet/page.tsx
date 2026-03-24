@@ -23,6 +23,18 @@ type PetApiResponse = {
   pet: ApiPet;
 };
 
+type ChatMessage = {
+  id: number;
+  pet_id: number;
+  role: "user" | "pet";
+  content: string;
+  created_at: string;
+};
+
+type MessageListResponse = {
+  messages: ChatMessage[];
+};
+
 const PET_ID_STORAGE_KEY = "pet-agent-social:pet-id";
 const API_BASE_URL = "http://localhost:8000";
 const MISSING_PET_MESSAGE = "之前保存的宠物资料找不到了，请重新创建一次。";
@@ -64,6 +76,32 @@ const isPetApiResponse = (value: unknown): value is PetApiResponse => {
     isPetProfile(response.pet) &&
     typeof (response.pet as { id?: unknown }).id === "number"
   );
+};
+
+const isChatMessage = (value: unknown): value is ChatMessage => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const message = value as Record<string, unknown>;
+
+  return (
+    typeof message.id === "number" &&
+    typeof message.pet_id === "number" &&
+    (message.role === "user" || message.role === "pet") &&
+    typeof message.content === "string" &&
+    typeof message.created_at === "string"
+  );
+};
+
+const isMessageListResponse = (value: unknown): value is MessageListResponse => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const response = value as Record<string, unknown>;
+
+  return Array.isArray(response.messages) && response.messages.every(isChatMessage);
 };
 
 const mapApiPetToProfile = (pet: ApiPet): PetProfile => ({
@@ -390,11 +428,13 @@ const getSocialStatus = (pet: PetProfile) => {
 
 export default function MyPetPage() {
   const [pet, setPet] = useState<PetProfile | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{
     type: "error" | "info";
     message: string;
   } | null>(null);
+  const [recentChatStatus, setRecentChatStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -406,65 +446,117 @@ export default function MyPetPage() {
         if (!storedPetId) {
           if (isMounted) {
             setPet(null);
+            setMessages([]);
             setStatusMessage(null);
+            setRecentChatStatus(null);
           }
           return;
         }
 
-        const response = await fetch(`${API_BASE_URL}/pets/${storedPetId}`, {
-          cache: "no-store",
-        });
+        const [petResponse, messagesResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/pets/${storedPetId}`, {
+            cache: "no-store",
+          }),
+          fetch(`${API_BASE_URL}/pets/${storedPetId}/messages`, {
+            cache: "no-store",
+          }),
+        ]);
 
-        if (response.ok) {
-          const data: unknown = await response.json();
-
-          if (isMounted && isPetApiResponse(data)) {
-            setPet(mapApiPetToProfile(data.pet));
-            setStatusMessage(null);
-          } else if (isMounted) {
-            setPet(null);
-            setStatusMessage({
-              type: "error",
-              message: "后端返回的数据格式不太对，请稍后再试。",
-            });
-          }
-
-          return;
-        }
-
-        if (response.status === 404) {
+        if (petResponse.status === 404 || messagesResponse.status === 404) {
           clearStoredPetId();
 
           if (isMounted) {
             setPet(null);
+            setMessages([]);
             setStatusMessage({
               type: "error",
               message: MISSING_PET_MESSAGE,
             });
+            setRecentChatStatus(null);
           }
 
           return;
         }
 
-        const errorMessage = await getResponseErrorMessage(
-          response,
-          "加载宠物资料失败，请稍后再试。"
-        );
+        if (!petResponse.ok) {
+          const errorMessage = await getResponseErrorMessage(
+            petResponse,
+            "加载宠物资料失败，请稍后再试。"
+          );
+
+          if (isMounted) {
+            setPet(null);
+            setMessages([]);
+            setStatusMessage({
+              type: "error",
+              message: errorMessage,
+            });
+            setRecentChatStatus(null);
+          }
+
+          return;
+        }
+
+        const petData: unknown = await petResponse.json();
+
+        if (!isPetApiResponse(petData)) {
+          if (isMounted) {
+            setPet(null);
+            setMessages([]);
+            setStatusMessage({
+              type: "error",
+              message: "后端返回的数据格式不太对，请稍后再试。",
+            });
+            setRecentChatStatus(null);
+          }
+
+          return;
+        }
+
+        if (!messagesResponse.ok) {
+          const errorMessage = await getResponseErrorMessage(
+            messagesResponse,
+            "最近聊天暂时加载失败，请稍后再试。"
+          );
+
+          if (isMounted) {
+            setPet(mapApiPetToProfile(petData.pet));
+            setMessages([]);
+            setStatusMessage(null);
+            setRecentChatStatus(errorMessage);
+          }
+
+          return;
+        }
+
+        const messagesData: unknown = await messagesResponse.json();
+
+        if (!isMessageListResponse(messagesData)) {
+          if (isMounted) {
+            setPet(mapApiPetToProfile(petData.pet));
+            setMessages([]);
+            setStatusMessage(null);
+            setRecentChatStatus("最近聊天数据格式不太对，请稍后再试。");
+          }
+
+          return;
+        }
 
         if (isMounted) {
-          setPet(null);
-          setStatusMessage({
-            type: "error",
-            message: errorMessage,
-          });
+          setPet(mapApiPetToProfile(petData.pet));
+          setMessages(messagesData.messages);
+          setStatusMessage(null);
+          setRecentChatStatus(null);
         }
       } catch {
         if (isMounted) {
           setPet(null);
+          setMessages([]);
           setStatusMessage({
             type: "error",
             message: "暂时连不上后端，请确认服务已启动。",
           });
+          setRecentChatStatus(null);
         }
       } finally {
         if (isMounted) {
@@ -504,6 +596,7 @@ export default function MyPetPage() {
   const emptyStateMessage =
     statusMessage?.message ||
     "先去创建你的第一只宠物吧。填写完成后保存，资料就会出现在这里。";
+  const recentMessages = [...messages].slice(-3).reverse();
 
   return (
     <main className="min-h-screen bg-white px-6 py-12 text-gray-900">
@@ -708,6 +801,52 @@ export default function MyPetPage() {
                   <p className="mt-3 text-sm leading-7 text-gray-600">
                     {petCardSpecialTraits}
                   </p>
+                </div>
+
+                <div className="rounded-2xl bg-gray-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">
+                        最近聊天
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-gray-500">
+                        这里只展示最近 3 条消息，帮你快速看看你们最近聊了什么。
+                      </p>
+                    </div>
+
+                    <Link
+                      href="/chat"
+                      className="text-sm font-medium text-amber-700 transition hover:text-amber-800"
+                    >
+                      去聊天 →
+                    </Link>
+                  </div>
+
+                  {recentMessages.length > 0 ? (
+                    <div className="mt-4 space-y-3">
+                      {recentMessages.map((message) => (
+                        <div
+                          key={message.id}
+                          className="rounded-2xl bg-white px-4 py-3 shadow-sm"
+                        >
+                          <p className="text-xs font-medium text-gray-500">
+                            {message.role === "user" ? "你" : petCardName}
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-gray-700">
+                            {summarizeText(message.content, 36)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : recentChatStatus ? (
+                    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-700">
+                      {recentChatStatus}
+                    </div>
+                  ) : (
+                    <div className="mt-4 rounded-2xl border border-dashed border-gray-200 bg-white/80 px-4 py-6 text-sm leading-6 text-gray-500">
+                      你们还没有聊过天，快去和它打个招呼吧。
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
