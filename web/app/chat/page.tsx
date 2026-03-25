@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 
 type PetProfile = {
   petName: string;
@@ -43,6 +43,8 @@ type ChatResponse = {
 const PET_ID_STORAGE_KEY = "pet-agent-social:pet-id";
 const API_BASE_URL = "http://localhost:8000";
 const MISSING_PET_MESSAGE = "之前保存的宠物资料找不到了，请重新创建一次。";
+const SEND_FAILURE_MESSAGE = "发送失败了，请稍后再试。";
+const SEND_TIMEOUT_MS = 8000;
 
 const isPetProfile = (value: unknown): value is PetProfile => {
   if (!value || typeof value !== "object") {
@@ -176,6 +178,8 @@ export default function ChatPage() {
     type: "error" | "info";
     message: string;
   } | null>(null);
+  const canSendMessage = Boolean(inputValue.trim() && petId && !isSending);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -295,9 +299,30 @@ export default function ChatPage() {
     };
   }, []);
 
-  const handleSendMessage = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  useEffect(() => {
+    if (isLoadingChat || !petId) {
+      return;
+    }
 
+    const frameId = window.requestAnimationFrame(() => {
+      const messagesContainer = messagesContainerRef.current;
+
+      if (!messagesContainer) {
+        return;
+      }
+
+      messagesContainer.scrollTo({
+        top: messagesContainer.scrollHeight,
+        behavior: "auto",
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [messages, isLoadingChat, petId]);
+
+  const sendMessage = async () => {
     const trimmedMessage = inputValue.trim();
 
     if (!trimmedMessage || !petId || isSending) {
@@ -306,10 +331,15 @@ export default function ChatPage() {
 
     setIsSending(true);
     setStatusMessage(null);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      controller.abort();
+    }, SEND_TIMEOUT_MS);
 
     try {
       const response = await fetch(`${API_BASE_URL}/pets/${petId}/chat`, {
         method: "POST",
+        signal: controller.signal,
         headers: {
           "Content-Type": "application/json",
         },
@@ -333,7 +363,7 @@ export default function ChatPage() {
       if (!response.ok) {
         const errorMessage = await getResponseErrorMessage(
           response,
-          "这次没有收到宠物回复，请稍后再试。"
+          SEND_FAILURE_MESSAGE
         );
 
         setStatusMessage({
@@ -362,11 +392,31 @@ export default function ChatPage() {
     } catch {
       setStatusMessage({
         type: "error",
-        message: "暂时连不上后端，请确认服务已启动。",
+        message: SEND_FAILURE_MESSAGE,
       });
     } finally {
+      window.clearTimeout(timeoutId);
       setIsSending(false);
     }
+  };
+
+  const handleSendMessage = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void sendMessage();
+  };
+
+  const handleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (!canSendMessage) {
+      return;
+    }
+
+    void sendMessage();
   };
 
   return (
@@ -449,9 +499,12 @@ export default function ChatPage() {
                   </div>
                 ) : null}
 
-                <div className="min-h-[320px] rounded-2xl bg-gray-50 p-4">
+                <div
+                  ref={messagesContainerRef}
+                  className="h-[360px] overflow-y-auto rounded-2xl bg-gray-50 p-4 sm:h-[420px]"
+                >
                   {messages.length === 0 ? (
-                    <div className="flex min-h-[288px] items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white/70 px-6 text-center text-sm leading-6 text-gray-500">
+                    <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white/70 px-6 text-center text-sm leading-6 text-gray-500">
                       还没有聊天记录，先和 {petName} 打个招呼吧。
                     </div>
                   ) : (
@@ -499,13 +552,14 @@ export default function ChatPage() {
                       type="text"
                       value={inputValue}
                       onChange={(event) => setInputValue(event.target.value)}
+                      onKeyDown={handleInputKeyDown}
                       placeholder="例如：今天过得怎么样？"
                       disabled={isSending}
                       className="flex-1 rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500 disabled:cursor-not-allowed disabled:opacity-60"
                     />
                     <button
                       type="submit"
-                      disabled={isSending || !inputValue.trim()}
+                      disabled={!canSendMessage}
                       className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isSending ? "发送中..." : "发送"}
