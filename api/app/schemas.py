@@ -56,3 +56,39 @@ class PetChatRequest(BaseModel):
 class PetChatResponse(BaseModel):
     user_message: MessageResponse
     pet_message: MessageResponse
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    created_at: datetime
+
+
+class AuthRegisterRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=6, max_length=128)
+
+
+class AuthLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=6, max_length=128)
+
+
+class AuthRegisterResponse(BaseModel):
+    message: str
+    user: UserResponse
+
+
+class AuthLoginResponse(BaseModel):
+    message: str
+    token: str
+    user: UserResponse
+
+
+class AuthLogoutResponse(BaseModel):
+    message: str
+
+
+class AuthMeResponse(BaseModel):
+    message: str
+    user: UserResponse
