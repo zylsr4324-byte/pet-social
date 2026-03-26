@@ -23,6 +23,11 @@ type PetApiResponse = {
   pet: ApiPet;
 };
 
+type PetListResponse = {
+  message: string;
+  pets: ApiPet[];
+};
+
 type ChatMessage = {
   id: number;
   pet_id: number;
@@ -36,7 +41,11 @@ type MessageListResponse = {
 };
 
 const PET_ID_STORAGE_KEY = "pet-agent-social:pet-id";
+const AUTH_TOKEN_STORAGE_KEY = "pet-agent-social:auth-token";
+const AUTH_USER_EMAIL_STORAGE_KEY = "pet-agent-social:auth-user-email";
 const API_BASE_URL = "http://localhost:8000";
+const RESTORE_PET_FAILURE_MESSAGE = "读取宠物列表失败了，请稍后再试。";
+const LOGIN_REQUIRED_MESSAGE = "请先登录后再使用这个页面。";
 const MISSING_PET_MESSAGE = "之前保存的宠物资料找不到了，请重新创建一次。";
 const EMPTY_PET: PetProfile = {
   petName: "",
@@ -75,6 +84,21 @@ const isPetApiResponse = (value: unknown): value is PetApiResponse => {
     typeof response.message === "string" &&
     isPetProfile(response.pet) &&
     typeof (response.pet as { id?: unknown }).id === "number"
+  );
+};
+
+const isPetListResponse = (value: unknown): value is PetListResponse => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const response = value as Record<string, unknown>;
+
+  return (
+    typeof response.message === "string" &&
+    Array.isArray(response.pets) &&
+    response.pets.every(isPetProfile) &&
+    response.pets.every((pet) => typeof (pet as { id?: unknown }).id === "number")
   );
 };
 
@@ -139,6 +163,21 @@ const readStoredPetId = () => {
   return null;
 };
 
+const readStoredAuthToken = () => {
+  const storedToken = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+
+  return storedToken?.trim() ? storedToken : null;
+};
+
+const clearStoredAuth = () => {
+  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  window.localStorage.removeItem(AUTH_USER_EMAIL_STORAGE_KEY);
+};
+
+const buildAuthHeaders = (token: string) => ({
+  Authorization: `Bearer ${token}`,
+});
+
 const getResponseErrorMessage = async (
   response: Response,
   fallbackMessage: string
@@ -168,6 +207,48 @@ const getResponseErrorMessage = async (
   }
 
   return fallbackMessage;
+};
+
+const fetchLatestPetForCurrentUser = async (token: string) => {
+  const response = await fetch(`${API_BASE_URL}/pets`, {
+    cache: "no-store",
+    headers: buildAuthHeaders(token),
+  });
+
+  if (response.status === 401) {
+    return {
+      pet: null as ApiPet | null,
+      unauthorized: true,
+      errorMessage: null as string | null,
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      pet: null as ApiPet | null,
+      unauthorized: false,
+      errorMessage: await getResponseErrorMessage(
+        response,
+        RESTORE_PET_FAILURE_MESSAGE
+      ),
+    };
+  }
+
+  const data: unknown = await response.json();
+
+  if (!isPetListResponse(data)) {
+    return {
+      pet: null as ApiPet | null,
+      unauthorized: false,
+      errorMessage: RESTORE_PET_FAILURE_MESSAGE,
+    };
+  }
+
+  return {
+    pet: data.pets[0] ?? null,
+    unauthorized: false,
+    errorMessage: null as string | null,
+  };
 };
 
 const getSpeciesVisual = (species: string) => {
@@ -429,6 +510,7 @@ const getSocialStatus = (pet: PetProfile) => {
 export default function MyPetPage() {
   const [pet, setPet] = useState<PetProfile | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [authToken, setAuthToken] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{
     type: "error" | "info";
@@ -441,29 +523,164 @@ export default function MyPetPage() {
 
     const loadPet = async () => {
       try {
-        const storedPetId = readStoredPetId();
+        const storedAuthToken = readStoredAuthToken();
 
-        if (!storedPetId) {
+        if (!storedAuthToken) {
           if (isMounted) {
+            setAuthToken(null);
             setPet(null);
             setMessages([]);
-            setStatusMessage(null);
+            setStatusMessage({
+              type: "info",
+              message: LOGIN_REQUIRED_MESSAGE,
+            });
             setRecentChatStatus(null);
           }
           return;
         }
 
+        if (isMounted) {
+          setAuthToken(storedAuthToken);
+        }
+
+        const restoreLatestPet = async () => {
+          const result = await fetchLatestPetForCurrentUser(storedAuthToken);
+
+          if (result.unauthorized) {
+            clearStoredAuth();
+
+            if (isMounted) {
+              setAuthToken(null);
+              setPet(null);
+              setMessages([]);
+              setStatusMessage({
+                type: "info",
+                message: LOGIN_REQUIRED_MESSAGE,
+              });
+              setRecentChatStatus(null);
+            }
+
+            return { pet: null as ApiPet | null, blocked: true };
+          }
+
+          if (result.errorMessage) {
+            if (isMounted) {
+              setPet(null);
+              setMessages([]);
+              setStatusMessage({
+                type: "error",
+                message: result.errorMessage,
+              });
+              setRecentChatStatus(null);
+            }
+
+            return { pet: null as ApiPet | null, blocked: true };
+          }
+
+          if (!result.pet) {
+            return { pet: null as ApiPet | null, blocked: false };
+          }
+
+          window.localStorage.setItem(PET_ID_STORAGE_KEY, String(result.pet.id));
+          return { pet: result.pet, blocked: false };
+        };
+
+        let activePetId = readStoredPetId();
+
+        if (!activePetId) {
+          const restoreResult = await restoreLatestPet();
+
+          if (restoreResult.blocked) {
+            return;
+          }
+
+          if (!restoreResult.pet) {
+            if (isMounted) {
+              setPet(null);
+              setMessages([]);
+              setStatusMessage(null);
+              setRecentChatStatus(null);
+            }
+            return;
+          }
+
+          activePetId = restoreResult.pet.id;
+        }
+
         const [petResponse, messagesResponse] = await Promise.all([
-          fetch(`${API_BASE_URL}/pets/${storedPetId}`, {
+          fetch(`${API_BASE_URL}/pets/${activePetId}`, {
             cache: "no-store",
+            headers: buildAuthHeaders(storedAuthToken),
           }),
-          fetch(`${API_BASE_URL}/pets/${storedPetId}/messages`, {
+          fetch(`${API_BASE_URL}/pets/${activePetId}/messages`, {
             cache: "no-store",
+            headers: buildAuthHeaders(storedAuthToken),
           }),
         ]);
 
+        if (petResponse.status === 401 || messagesResponse.status === 401) {
+          clearStoredAuth();
+
+          if (isMounted) {
+            setAuthToken(null);
+            setPet(null);
+            setMessages([]);
+            setStatusMessage({
+              type: "info",
+              message: LOGIN_REQUIRED_MESSAGE,
+            });
+            setRecentChatStatus(null);
+          }
+
+          return;
+        }
+
         if (petResponse.status === 404 || messagesResponse.status === 404) {
           clearStoredPetId();
+
+          const restoreResult = await restoreLatestPet();
+
+          if (restoreResult.blocked) {
+            return;
+          }
+
+          if (restoreResult.pet) {
+            activePetId = restoreResult.pet.id;
+
+            const [restoredPetResponse, restoredMessagesResponse] = await Promise.all([
+              fetch(`${API_BASE_URL}/pets/${activePetId}`, {
+                cache: "no-store",
+                headers: buildAuthHeaders(storedAuthToken),
+              }),
+              fetch(`${API_BASE_URL}/pets/${activePetId}/messages`, {
+                cache: "no-store",
+                headers: buildAuthHeaders(storedAuthToken),
+              }),
+            ]);
+
+            if (
+              restoredPetResponse.ok &&
+              restoredMessagesResponse.ok
+            ) {
+              const restoredPetData: unknown = await restoredPetResponse.json();
+              const restoredMessagesData: unknown =
+                await restoredMessagesResponse.json();
+
+              if (
+                isPetApiResponse(restoredPetData) &&
+                isMessageListResponse(restoredMessagesData)
+              ) {
+                if (isMounted) {
+                  setPet(mapApiPetToProfile(restoredPetData.pet));
+                  setMessages(restoredMessagesData.messages);
+                  setStatusMessage(null);
+                  setRecentChatStatus(null);
+                }
+
+                return;
+              }
+            }
+          }
 
           if (isMounted) {
             setPet(null);
@@ -597,6 +814,12 @@ export default function MyPetPage() {
     statusMessage?.message ||
     "先去创建你的第一只宠物吧。填写完成后保存，资料就会出现在这里。";
   const recentMessages = [...messages].slice(-3).reverse();
+  const pageEmptyStateTitle = !authToken
+    ? "请先登录后再查看宠物"
+    : emptyStateTitle;
+  const pageEmptyStateMessage = !authToken
+    ? LOGIN_REQUIRED_MESSAGE
+    : emptyStateMessage;
 
   return (
     <main className="min-h-screen bg-white px-6 py-12 text-gray-900">
@@ -628,17 +851,20 @@ export default function MyPetPage() {
         {isLoaded && !pet ? (
           <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 shadow-sm">
             <h2 className="text-2xl font-semibold text-gray-900">
-              {emptyStateTitle}
+              {pageEmptyStateTitle}
             </h2>
             <p className="mt-3 text-sm leading-7 text-gray-600">
-              {emptyStateMessage}
+              {pageEmptyStateMessage}
             </p>
 
             <div className="mt-6">
               <Link
-                href="/create-pet"
-                className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
+                href={authToken ? "/create-pet" : "/login"}
+                className="relative inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-transparent transition hover:bg-gray-700"
               >
+                <span className="absolute inset-0 flex items-center justify-center text-white">
+                  {authToken ? "去创建宠物" : "去登录"}
+                </span>
                 去创建宠物
               </Link>
             </div>

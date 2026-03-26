@@ -37,6 +37,11 @@ class PetDetailResponse(BaseModel):
     pet: PetResponse
 
 
+class PetListResponse(BaseModel):
+    message: str
+    pets: list[PetResponse]
+
+
 class MessageResponse(BaseModel):
     id: int
     pet_id: int

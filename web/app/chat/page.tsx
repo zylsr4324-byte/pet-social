@@ -23,6 +23,11 @@ type PetApiResponse = {
   pet: ApiPet;
 };
 
+type PetListResponse = {
+  message: string;
+  pets: ApiPet[];
+};
+
 type ChatMessage = {
   id: number;
   pet_id: number;
@@ -40,11 +45,20 @@ type ChatResponse = {
   pet_message: ChatMessage;
 };
 
+type DeleteMessagesResponse = {
+  message: string;
+};
+
 const PET_ID_STORAGE_KEY = "pet-agent-social:pet-id";
+const AUTH_TOKEN_STORAGE_KEY = "pet-agent-social:auth-token";
+const AUTH_USER_EMAIL_STORAGE_KEY = "pet-agent-social:auth-user-email";
 const API_BASE_URL = "http://localhost:8000";
+const RESTORE_PET_FAILURE_MESSAGE = "读取宠物列表失败了，请稍后再试。";
 const MISSING_PET_MESSAGE = "之前保存的宠物资料找不到了，请重新创建一次。";
 const SEND_FAILURE_MESSAGE = "发送失败了，请稍后再试。";
+const CLEAR_MESSAGES_FAILURE_MESSAGE = "清空聊天记录失败了，请稍后再试。";
 const SEND_TIMEOUT_MS = 8000;
+const LOGIN_REQUIRED_MESSAGE = "请先登录后再使用这个页面。";
 
 const isPetProfile = (value: unknown): value is PetProfile => {
   if (!value || typeof value !== "object") {
@@ -74,6 +88,21 @@ const isPetApiResponse = (value: unknown): value is PetApiResponse => {
     typeof response.message === "string" &&
     isPetProfile(response.pet) &&
     typeof (response.pet as { id?: unknown }).id === "number"
+  );
+};
+
+const isPetListResponse = (value: unknown): value is PetListResponse => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const response = value as Record<string, unknown>;
+
+  return (
+    typeof response.message === "string" &&
+    Array.isArray(response.pets) &&
+    response.pets.every(isPetProfile) &&
+    response.pets.every((pet) => typeof (pet as { id?: unknown }).id === "number")
   );
 };
 
@@ -115,6 +144,18 @@ const isChatResponse = (value: unknown): value is ChatResponse => {
   );
 };
 
+const isDeleteMessagesResponse = (
+  value: unknown
+): value is DeleteMessagesResponse => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const response = value as Record<string, unknown>;
+
+  return typeof response.message === "string";
+};
+
 const clearStoredPetId = () => {
   window.localStorage.removeItem(PET_ID_STORAGE_KEY);
 };
@@ -134,6 +175,29 @@ const readStoredPetId = () => {
 
   clearStoredPetId();
   return null;
+};
+
+const readStoredAuthToken = () => {
+  const storedToken = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+
+  return storedToken?.trim() ? storedToken : null;
+};
+
+const clearStoredAuth = () => {
+  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  window.localStorage.removeItem(AUTH_USER_EMAIL_STORAGE_KEY);
+};
+
+const buildAuthHeaders = (token: string, includeJson = false) => {
+  const headers: HeadersInit = {
+    Authorization: `Bearer ${token}`,
+  };
+
+  if (includeJson) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return headers;
 };
 
 const getResponseErrorMessage = async (
@@ -167,18 +231,67 @@ const getResponseErrorMessage = async (
   return fallbackMessage;
 };
 
+const fetchLatestPetForCurrentUser = async (token: string) => {
+  const response = await fetch(`${API_BASE_URL}/pets`, {
+    cache: "no-store",
+    headers: buildAuthHeaders(token),
+  });
+
+  if (response.status === 401) {
+    return {
+      pet: null as ApiPet | null,
+      unauthorized: true,
+      errorMessage: null as string | null,
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      pet: null as ApiPet | null,
+      unauthorized: false,
+      errorMessage: await getResponseErrorMessage(
+        response,
+        RESTORE_PET_FAILURE_MESSAGE
+      ),
+    };
+  }
+
+  const data: unknown = await response.json();
+
+  if (!isPetListResponse(data)) {
+    return {
+      pet: null as ApiPet | null,
+      unauthorized: false,
+      errorMessage: RESTORE_PET_FAILURE_MESSAGE,
+    };
+  }
+
+  return {
+    pet: data.pets[0] ?? null,
+    unauthorized: false,
+    errorMessage: null as string | null,
+  };
+};
+
 export default function ChatPage() {
   const [petId, setPetId] = useState<number | null>(null);
   const [petName, setPetName] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [authToken, setAuthToken] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
   const [isLoadingChat, setIsLoadingChat] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [isClearingMessages, setIsClearingMessages] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{
     type: "error" | "info";
     message: string;
   } | null>(null);
-  const canSendMessage = Boolean(inputValue.trim() && petId && !isSending);
+  const canSendMessage = Boolean(
+    inputValue.trim() && petId && authToken && !isSending && !isClearingMessages
+  );
+  const canClearMessages = Boolean(
+    petId && authToken && !isLoadingChat && !isSending && !isClearingMessages
+  );
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -186,9 +299,94 @@ export default function ChatPage() {
 
     const loadChat = async () => {
       try {
-        const storedPetId = readStoredPetId();
+        const storedAuthToken = readStoredAuthToken();
 
-        if (!storedPetId) {
+        if (!storedAuthToken) {
+          if (isMounted) {
+            setAuthToken(null);
+            setPetId(null);
+            setPetName("");
+            setMessages([]);
+            setStatusMessage({
+              type: "info",
+              message: LOGIN_REQUIRED_MESSAGE,
+            });
+          }
+          return;
+        }
+
+        if (isMounted) {
+          setAuthToken(storedAuthToken);
+        }
+
+        const restoreLatestPet = async () => {
+          const result = await fetchLatestPetForCurrentUser(storedAuthToken);
+
+          if (result.unauthorized) {
+            clearStoredAuth();
+
+            if (isMounted) {
+              setAuthToken(null);
+              setPetId(null);
+              setPetName("");
+              setMessages([]);
+              setStatusMessage({
+                type: "info",
+                message: LOGIN_REQUIRED_MESSAGE,
+              });
+            }
+
+            return { pet: null as ApiPet | null, blocked: true };
+          }
+
+          if (result.errorMessage) {
+            if (isMounted) {
+              setPetId(null);
+              setPetName("");
+              setMessages([]);
+              setStatusMessage({
+                type: "error",
+                message: result.errorMessage,
+              });
+            }
+
+            return { pet: null as ApiPet | null, blocked: true };
+          }
+
+          if (!result.pet) {
+            return { pet: null as ApiPet | null, blocked: false };
+          }
+
+          window.localStorage.setItem(PET_ID_STORAGE_KEY, String(result.pet.id));
+          return { pet: result.pet, blocked: false };
+        };
+
+        let activePetId = readStoredPetId();
+
+        if (!activePetId) {
+          const restoreResult = await restoreLatestPet();
+
+          if (restoreResult.blocked) {
+            return;
+          }
+
+          if (!restoreResult.pet) {
+            if (isMounted) {
+              setPetId(null);
+              setPetName("");
+              setMessages([]);
+              setStatusMessage({
+                type: "info",
+                message: "你还没有宠物，先去创建一只再来聊天吧。",
+              });
+            }
+            return;
+          }
+
+          activePetId = restoreResult.pet.id;
+        }
+
+        if (!activePetId) {
           if (isMounted) {
             setPetId(null);
             setPetName("");
@@ -202,16 +400,76 @@ export default function ChatPage() {
         }
 
         const [petResponse, messagesResponse] = await Promise.all([
-          fetch(`${API_BASE_URL}/pets/${storedPetId}`, {
+          fetch(`${API_BASE_URL}/pets/${activePetId}`, {
             cache: "no-store",
+            headers: buildAuthHeaders(storedAuthToken),
           }),
-          fetch(`${API_BASE_URL}/pets/${storedPetId}/messages`, {
+          fetch(`${API_BASE_URL}/pets/${activePetId}/messages`, {
             cache: "no-store",
+            headers: buildAuthHeaders(storedAuthToken),
           }),
         ]);
 
+        if (petResponse.status === 401 || messagesResponse.status === 401) {
+          clearStoredAuth();
+
+          if (isMounted) {
+            setAuthToken(null);
+            setPetId(null);
+            setPetName("");
+            setMessages([]);
+            setStatusMessage({
+              type: "info",
+              message: LOGIN_REQUIRED_MESSAGE,
+            });
+          }
+
+          return;
+        }
+
         if (petResponse.status === 404 || messagesResponse.status === 404) {
           clearStoredPetId();
+
+          const restoreResult = await restoreLatestPet();
+
+          if (restoreResult.blocked) {
+            return;
+          }
+
+          if (restoreResult.pet) {
+            activePetId = restoreResult.pet.id;
+
+            const [restoredPetResponse, restoredMessagesResponse] = await Promise.all([
+              fetch(`${API_BASE_URL}/pets/${activePetId}`, {
+                cache: "no-store",
+                headers: buildAuthHeaders(storedAuthToken),
+              }),
+              fetch(`${API_BASE_URL}/pets/${activePetId}/messages`, {
+                cache: "no-store",
+                headers: buildAuthHeaders(storedAuthToken),
+              }),
+            ]);
+
+            if (restoredPetResponse.ok && restoredMessagesResponse.ok) {
+              const restoredPetData: unknown = await restoredPetResponse.json();
+              const restoredMessagesData: unknown =
+                await restoredMessagesResponse.json();
+
+              if (
+                isPetApiResponse(restoredPetData) &&
+                isMessageListResponse(restoredMessagesData)
+              ) {
+                if (isMounted) {
+                  setPetId(restoredPetData.pet.id);
+                  setPetName(restoredPetData.pet.petName || "宠物");
+                  setMessages(restoredMessagesData.messages);
+                  setStatusMessage(null);
+                }
+
+                return;
+              }
+            }
+          }
 
           if (isMounted) {
             setPetId(null);
@@ -325,7 +583,7 @@ export default function ChatPage() {
   const sendMessage = async () => {
     const trimmedMessage = inputValue.trim();
 
-    if (!trimmedMessage || !petId || isSending) {
+    if (!trimmedMessage || !petId || !authToken || isSending || isClearingMessages) {
       return;
     }
 
@@ -340,13 +598,24 @@ export default function ChatPage() {
       const response = await fetch(`${API_BASE_URL}/pets/${petId}/chat`, {
         method: "POST",
         signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: buildAuthHeaders(authToken, true),
         body: JSON.stringify({
           message: trimmedMessage,
         }),
       });
+
+      if (response.status === 401) {
+        clearStoredAuth();
+        setAuthToken(null);
+        setPetId(null);
+        setPetName("");
+        setMessages([]);
+        setStatusMessage({
+          type: "info",
+          message: LOGIN_REQUIRED_MESSAGE,
+        });
+        return;
+      }
 
       if (response.status === 404) {
         clearStoredPetId();
@@ -400,6 +669,94 @@ export default function ChatPage() {
     }
   };
 
+  const handleClearMessages = async () => {
+    if (!petId || !authToken || isSending || isClearingMessages) {
+      return;
+    }
+
+    const confirmed = window.confirm("确认要清空当前宠物的全部聊天记录吗？");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsClearingMessages(true);
+    setStatusMessage(null);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/pets/${petId}/messages`, {
+        method: "DELETE",
+        headers: buildAuthHeaders(authToken),
+      });
+
+      if (response.status === 401) {
+        clearStoredAuth();
+        setAuthToken(null);
+        setPetId(null);
+        setPetName("");
+        setMessages([]);
+        setInputValue("");
+        setStatusMessage({
+          type: "info",
+          message: LOGIN_REQUIRED_MESSAGE,
+        });
+        return;
+      }
+
+      if (response.status === 404) {
+        clearStoredPetId();
+        setPetId(null);
+        setPetName("");
+        setMessages([]);
+        setInputValue("");
+        setStatusMessage({
+          type: "error",
+          message: MISSING_PET_MESSAGE,
+        });
+        return;
+      }
+
+      if (!response.ok) {
+        const errorMessage = await getResponseErrorMessage(
+          response,
+          CLEAR_MESSAGES_FAILURE_MESSAGE
+        );
+
+        setStatusMessage({
+          type: "error",
+          message: errorMessage,
+        });
+        return;
+      }
+
+      let successMessage = "聊天记录已清空，现在可以重新开始聊天了。";
+
+      try {
+        const data: unknown = await response.json();
+
+        if (isDeleteMessagesResponse(data)) {
+          successMessage = data.message;
+        }
+      } catch {
+        successMessage = "聊天记录已清空，现在可以重新开始聊天了。";
+      }
+
+      setMessages([]);
+      setInputValue("");
+      setStatusMessage({
+        type: "info",
+        message: successMessage,
+      });
+    } catch {
+      setStatusMessage({
+        type: "error",
+        message: CLEAR_MESSAGES_FAILURE_MESSAGE,
+      });
+    } finally {
+      setIsClearingMessages(false);
+    }
+  };
+
   const handleSendMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     void sendMessage();
@@ -418,6 +775,14 @@ export default function ChatPage() {
 
     void sendMessage();
   };
+
+  const emptyChatTitle = authToken
+    ? "还不能开始聊天"
+    : "请先登录后再聊天";
+  const emptyChatMessage = authToken
+    ? statusMessage?.message ||
+      "你还没有创建宠物，先去创建后再回来和它聊天吧。"
+    : LOGIN_REQUIRED_MESSAGE;
 
   return (
     <main className="min-h-screen bg-white px-6 py-12 text-gray-900">
@@ -446,7 +811,33 @@ export default function ChatPage() {
           </section>
         ) : null}
 
-        {!isLoadingChat && !petId ? (
+        {!isLoadingChat && !authToken ? (
+          <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 shadow-sm">
+            <h2 className="text-2xl font-semibold text-gray-900">
+              {emptyChatTitle}
+            </h2>
+            <p className="mt-3 text-sm leading-7 text-gray-600">
+              {emptyChatMessage}
+            </p>
+
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <Link
+                href="/login"
+                className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
+              >
+                去登录
+              </Link>
+              <Link
+                href="/register"
+                className="text-sm text-gray-500 transition hover:text-gray-800"
+              >
+                还没有账号？去注册
+              </Link>
+            </div>
+          </section>
+        ) : null}
+
+        {!isLoadingChat && authToken && !petId ? (
           <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 shadow-sm">
             <h2 className="text-2xl font-semibold text-gray-900">
               现在还不能开始聊天
@@ -487,6 +878,20 @@ export default function ChatPage() {
               </div>
 
               <div className="space-y-4 p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-amber-50 px-4 py-3">
+                  <p className="text-sm leading-6 text-gray-600">
+                    想重新整理上下文时，可以直接清空这只宠物的聊天记录。
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void handleClearMessages()}
+                    disabled={!canClearMessages}
+                    className="text-sm font-medium text-amber-700 transition hover:text-amber-900 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isClearingMessages ? "清空中..." : "清空聊天记录"}
+                  </button>
+                </div>
+
                 {statusMessage ? (
                   <div
                     className={`rounded-xl border px-4 py-3 text-sm leading-6 ${
@@ -554,7 +959,7 @@ export default function ChatPage() {
                       onChange={(event) => setInputValue(event.target.value)}
                       onKeyDown={handleInputKeyDown}
                       placeholder="例如：今天过得怎么样？"
-                      disabled={isSending}
+                      disabled={isSending || isClearingMessages}
                       className="flex-1 rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500 disabled:cursor-not-allowed disabled:opacity-60"
                     />
                     <button

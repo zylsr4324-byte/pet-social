@@ -23,9 +23,18 @@ type PetApiResponse = {
   pet: ApiPet;
 };
 
+type PetListResponse = {
+  message: string;
+  pets: ApiPet[];
+};
+
 const PET_ID_STORAGE_KEY = "pet-agent-social:pet-id";
 const LEGACY_PET_STORAGE_KEY = "pet-agent-social:pet-profile";
+const AUTH_TOKEN_STORAGE_KEY = "pet-agent-social:auth-token";
+const AUTH_USER_EMAIL_STORAGE_KEY = "pet-agent-social:auth-user-email";
 const API_BASE_URL = "http://localhost:8000";
+const RESTORE_PET_FAILURE_MESSAGE = "读取宠物列表失败了，请稍后再试。";
+const LOGIN_REQUIRED_MESSAGE = "请先登录后再使用这个页面。";
 const EMPTY_PET: PetProfile = {
   petName: "",
   species: "",
@@ -66,6 +75,21 @@ const isPetApiResponse = (value: unknown): value is PetApiResponse => {
   );
 };
 
+const isPetListResponse = (value: unknown): value is PetListResponse => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const response = value as Record<string, unknown>;
+
+  return (
+    typeof response.message === "string" &&
+    Array.isArray(response.pets) &&
+    response.pets.every(isPetProfile) &&
+    response.pets.every((pet) => typeof (pet as { id?: unknown }).id === "number")
+  );
+};
+
 const mapApiPetToProfile = (pet: ApiPet): PetProfile => ({
   petName: pet.petName,
   species: pet.species,
@@ -74,6 +98,10 @@ const mapApiPetToProfile = (pet: ApiPet): PetProfile => ({
   personality: pet.personality,
   specialTraits: pet.specialTraits,
 });
+
+const clearStoredPetId = () => {
+  window.localStorage.removeItem(PET_ID_STORAGE_KEY);
+};
 
 const readStoredPetId = () => {
   const storedPetId = window.localStorage.getItem(PET_ID_STORAGE_KEY);
@@ -90,6 +118,29 @@ const readStoredPetId = () => {
 
   window.localStorage.removeItem(PET_ID_STORAGE_KEY);
   return null;
+};
+
+const readStoredAuthToken = () => {
+  const storedToken = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+
+  return storedToken?.trim() ? storedToken : null;
+};
+
+const clearStoredAuth = () => {
+  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  window.localStorage.removeItem(AUTH_USER_EMAIL_STORAGE_KEY);
+};
+
+const buildAuthHeaders = (token: string, includeJson = false) => {
+  const headers: HeadersInit = {
+    Authorization: `Bearer ${token}`,
+  };
+
+  if (includeJson) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return headers;
 };
 
 const readLegacyPetProfile = () => {
@@ -136,6 +187,48 @@ const getResponseErrorMessage = async (
   }
 
   return fallbackMessage;
+};
+
+const fetchLatestPetForCurrentUser = async (token: string) => {
+  const response = await fetch(`${API_BASE_URL}/pets`, {
+    cache: "no-store",
+    headers: buildAuthHeaders(token),
+  });
+
+  if (response.status === 401) {
+    return {
+      pet: null as ApiPet | null,
+      unauthorized: true,
+      errorMessage: null as string | null,
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      pet: null as ApiPet | null,
+      unauthorized: false,
+      errorMessage: await getResponseErrorMessage(
+        response,
+        RESTORE_PET_FAILURE_MESSAGE
+      ),
+    };
+  }
+
+  const data: unknown = await response.json();
+
+  if (!isPetListResponse(data)) {
+    return {
+      pet: null as ApiPet | null,
+      unauthorized: false,
+      errorMessage: RESTORE_PET_FAILURE_MESSAGE,
+    };
+  }
+
+  return {
+    pet: data.pets[0] ?? null,
+    unauthorized: false,
+    errorMessage: null as string | null,
+  };
 };
 
 const getSpeciesVisual = (species: string) => {
@@ -397,6 +490,7 @@ const getSocialStatus = (pet: PetProfile) => {
 export default function CreatePetPage() {
   const [pet, setPet] = useState<PetProfile>(EMPTY_PET);
   const [petId, setPetId] = useState<number | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
   const [isLoadingPet, setIsLoadingPet] = useState(true);
   const [isSavingPet, setIsSavingPet] = useState(false);
   const [feedback, setFeedback] = useState<{
@@ -409,12 +503,94 @@ export default function CreatePetPage() {
 
     const loadPet = async () => {
       try {
+        const storedAuthToken = readStoredAuthToken();
+
+        if (!storedAuthToken) {
+          if (isMounted) {
+            setAuthToken(null);
+            setFeedback({
+              type: "info",
+              message: LOGIN_REQUIRED_MESSAGE,
+            });
+          }
+          return;
+        }
+
+        if (isMounted) {
+          setAuthToken(storedAuthToken);
+        }
+
+        const restoreLatestPet = async () => {
+          const result = await fetchLatestPetForCurrentUser(storedAuthToken);
+
+          if (result.unauthorized) {
+            clearStoredAuth();
+
+            if (isMounted) {
+              setAuthToken(null);
+              setPetId(null);
+              setPet(EMPTY_PET);
+              setFeedback({
+                type: "info",
+                message: LOGIN_REQUIRED_MESSAGE,
+              });
+            }
+
+            return { restored: false, blocked: true };
+          }
+
+          if (result.errorMessage) {
+            if (isMounted) {
+              setFeedback({
+                type: "error",
+                message: result.errorMessage,
+              });
+            }
+
+            return { restored: false, blocked: true };
+          }
+
+          if (!result.pet) {
+            return { restored: false, blocked: false };
+          }
+
+          const restoredPet = mapApiPetToProfile(result.pet);
+
+          if (isMounted) {
+            setPetId(result.pet.id);
+            setPet(restoredPet);
+            window.localStorage.setItem(PET_ID_STORAGE_KEY, String(result.pet.id));
+            window.localStorage.removeItem(LEGACY_PET_STORAGE_KEY);
+            setFeedback({
+              type: "info",
+              message: `已为你恢复最近创建的${restoredPet.petName || "宠物"}资料。`,
+            });
+          }
+
+          return { restored: true, blocked: false };
+        };
+
         const storedPetId = readStoredPetId();
 
         if (storedPetId) {
           const response = await fetch(`${API_BASE_URL}/pets/${storedPetId}`, {
             cache: "no-store",
+            headers: buildAuthHeaders(storedAuthToken),
           });
+
+          if (response.status === 401) {
+            clearStoredAuth();
+
+            if (isMounted) {
+              setAuthToken(null);
+              setFeedback({
+                type: "info",
+                message: LOGIN_REQUIRED_MESSAGE,
+              });
+            }
+
+            return;
+          }
 
           if (response.ok) {
             const data: unknown = await response.json();
@@ -434,8 +610,10 @@ export default function CreatePetPage() {
                 message: `已为你加载${loadedPet.petName || "宠物"}的资料，可以直接继续编辑。`,
               });
             } else if (isMounted) {
+              setPetId(null);
+              setPet(EMPTY_PET);
               setFeedback({
-                type: "error",
+                type: "info",
                 message: "后端返回的数据格式不太对，请稍后再试。",
               });
             }
@@ -444,11 +622,18 @@ export default function CreatePetPage() {
           }
 
           if (response.status === 404) {
-            window.localStorage.removeItem(PET_ID_STORAGE_KEY);
+            clearStoredPetId();
+
+            const restoreResult = await restoreLatestPet();
+
+            if (restoreResult.restored || restoreResult.blocked) {
+              return;
+            }
 
             const legacyPet = readLegacyPetProfile();
 
             if (isMounted && legacyPet) {
+              setPetId(null);
               setPet(legacyPet);
               setFeedback({
                 type: "info",
@@ -456,8 +641,10 @@ export default function CreatePetPage() {
                   "已读取你之前保存在本地的宠物资料，重新保存后会同步到后端。",
               });
             } else if (isMounted) {
+              setPetId(null);
+              setPet(EMPTY_PET);
               setFeedback({
-                type: "error",
+                type: "info",
                 message: "之前保存的宠物资料找不到了，请重新填写后再保存。",
               });
             }
@@ -480,15 +667,26 @@ export default function CreatePetPage() {
           return;
         }
 
+        const restoreResult = await restoreLatestPet();
+
+        if (restoreResult.restored || restoreResult.blocked) {
+          return;
+        }
+
         const legacyPet = readLegacyPetProfile();
 
         if (isMounted && legacyPet) {
+          setPetId(null);
           setPet(legacyPet);
           setFeedback({
             type: "info",
             message:
               "已读取你之前保存在本地的宠物资料，重新保存后会同步到后端。",
           });
+        } else if (isMounted) {
+          setPetId(null);
+          setPet(EMPTY_PET);
+          setFeedback(null);
         }
       } catch {
         if (isMounted) {
@@ -520,6 +718,14 @@ export default function CreatePetPage() {
   };
 
   const handleSavePet = async () => {
+    if (!authToken) {
+      setFeedback({
+        type: "info",
+        message: LOGIN_REQUIRED_MESSAGE,
+      });
+      return;
+    }
+
     setIsSavingPet(true);
 
     try {
@@ -528,14 +734,22 @@ export default function CreatePetPage() {
         isUpdating ? `${API_BASE_URL}/pets/${petId}` : `${API_BASE_URL}/pets`,
         {
           method: isUpdating ? "PUT" : "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: buildAuthHeaders(authToken, true),
           body: JSON.stringify(pet),
         }
       );
 
       if (!response.ok) {
+        if (response.status === 401) {
+          clearStoredAuth();
+          setAuthToken(null);
+          setFeedback({
+            type: "info",
+            message: LOGIN_REQUIRED_MESSAGE,
+          });
+          return;
+        }
+
         if (response.status === 404 && isUpdating) {
           window.localStorage.removeItem(PET_ID_STORAGE_KEY);
           setPetId(null);
@@ -606,6 +820,52 @@ export default function CreatePetPage() {
   const petAppearanceSummary = getAppearanceSummary(pet);
   const petTemperamentTag = getTemperamentTag(pet.personality);
   const petSocialStatus = getSocialStatus(pet);
+
+  if (!isLoadingPet && !authToken) {
+    return (
+      <main className="min-h-screen bg-white px-6 py-12 text-gray-900">
+        <div className="mx-auto max-w-5xl">
+          <div className="mb-8">
+            <Link
+              href="/"
+              className="text-sm text-gray-500 transition hover:text-gray-800"
+            >
+              返回首页
+            </Link>
+
+            <h1 className="mt-4 text-3xl font-bold sm:text-4xl">创建宠物</h1>
+            <p className="mt-3 text-base leading-7 text-gray-600">
+              先登录后，就能创建、保存并继续编辑只属于你的宠物资料。
+            </p>
+          </div>
+
+          <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 shadow-sm">
+            <h2 className="text-2xl font-semibold text-gray-900">
+              请先登录后再创建宠物
+            </h2>
+            <p className="mt-3 text-sm leading-7 text-gray-600">
+              {feedback?.message || LOGIN_REQUIRED_MESSAGE}
+            </p>
+
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <Link
+                href="/login"
+                className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
+              >
+                去登录
+              </Link>
+              <Link
+                href="/register"
+                className="text-sm text-gray-500 transition hover:text-gray-800"
+              >
+                还没有账号？去注册
+              </Link>
+            </div>
+          </section>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-white px-6 py-12 text-gray-900">
