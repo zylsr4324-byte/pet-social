@@ -37,6 +37,7 @@ import {
   createSceneActionSuccessNotice,
   createSceneTargetNotice,
   getHomeSceneNoticeClassName,
+  getNoticeAutoDismissMs,
   type HomePageNotice,
   type HomeSceneNotice,
 } from "../../lib/home-scene-notice";
@@ -248,6 +249,25 @@ export default function HomeScenePage() {
       window.clearInterval(intervalId);
     };
   }, [authToken, pet]);
+
+  useEffect(() => {
+    if (!sceneNotice) {
+      return;
+    }
+
+    const dismissAfterMs = getNoticeAutoDismissMs(sceneNotice.scope);
+    if (!dismissAfterMs) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSceneNotice(null);
+    }, dismissAfterMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [sceneNotice]);
 
   const handlePetSwitch = (_newPetId: number) => {
     void _newPetId;

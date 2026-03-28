@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { buildAuthHeaders } from "./auth";
 import { API_BASE_URL } from "./constants";
@@ -8,6 +8,7 @@ import {
   createStatusPanelErrorNotice,
   createStatusPanelNetworkNotice,
   createStatusPanelSuccessNotice,
+  getNoticeAutoDismissMs,
   getStatusPanelNoticeClassName,
   type StatusPanelNotice,
 } from "./home-scene-notice";
@@ -118,6 +119,25 @@ export function PetStatusPanel({
   const syncStatus = (nextStatus: PetStatus) => {
     onStatusChange?.(nextStatus);
   };
+
+  useEffect(() => {
+    if (!panelNotice) {
+      return;
+    }
+
+    const dismissAfterMs = getNoticeAutoDismissMs(panelNotice.scope);
+    if (!dismissAfterMs) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setPanelNotice(null);
+    }, dismissAfterMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [panelNotice]);
 
   const handleAction = async (endpoint: string, label: string) => {
     if (isActing) {

@@ -13,6 +13,7 @@ import {
   createSceneActionErrorNotice,
   createSceneActionSuccessNotice,
   createSceneTargetNotice,
+  getNoticeAutoDismissMs,
   createStatusPanelErrorNotice,
   createStatusPanelSuccessNotice,
 } from "../lib/home-scene-notice";
@@ -130,6 +131,9 @@ runTest("home scene notices keep page, scene, and panel responsibilities separat
     tone: "error",
     text: "喂食失败了，请稍后再试。",
   });
+  assert.equal(getNoticeAutoDismissMs("page"), null);
+  assert.equal(getNoticeAutoDismissMs("scene"), 4200);
+  assert.equal(getNoticeAutoDismissMs("panel"), 3200);
 });
 
 runTest("PetStatusPanel follows the parent-owned status snapshot", () => {

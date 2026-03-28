@@ -22,6 +22,11 @@ export type StatusPanelNotice = {
   text: string;
 };
 
+export type HomeNoticeScope =
+  | HomePageNotice["scope"]
+  | HomeSceneNotice["scope"]
+  | StatusPanelNotice["scope"];
+
 function normalizeNoticeText(text?: string | null) {
   const normalizedText = text?.trim();
   return normalizedText ? normalizedText : null;
@@ -139,4 +144,17 @@ export function getStatusPanelNoticeClassName(
   tone: StatusPanelNotice["tone"]
 ): string {
   return tone === "success" ? "text-emerald-700" : "text-rose-700";
+}
+
+export function getNoticeAutoDismissMs(
+  scope: HomeNoticeScope
+): number | null {
+  switch (scope) {
+    case "scene":
+      return 4200;
+    case "panel":
+      return 3200;
+    default:
+      return null;
+  }
 }
