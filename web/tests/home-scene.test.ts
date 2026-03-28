@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   buildHomeSceneActionMessage,
   getHomeSceneBehavior,
+  HOME_PET_INTERACTION_MENU_ITEMS,
   HOME_SCENE_OBJECTS,
 } from "../lib/home-scene";
 import {
@@ -75,6 +76,15 @@ runTest("HOME_SCENE_OBJECTS separates instant actions from target points", () =>
   assert.equal(HOME_SCENE_OBJECTS.bed.badgeLabel, "休息目标");
 });
 
+runTest("pet interaction menu keeps status view and chat entry separate", () => {
+  assert.deepEqual(
+    HOME_PET_INTERACTION_MENU_ITEMS.map((item) => item.action),
+    ["status", "chat"]
+  );
+  assert.equal(HOME_PET_INTERACTION_MENU_ITEMS[0]?.label, "查看状态面板");
+  assert.equal(HOME_PET_INTERACTION_MENU_ITEMS[1]?.label, "前往聊天入口");
+});
+
 runTest("HOME_SCENE_OBJECTS keeps fixed objects on unique tiles", () => {
   const tileKeys = Object.values(HOME_SCENE_OBJECTS).map(
     (item) => `${item.tileX}:${item.tileY}`
@@ -126,7 +136,7 @@ runTest("home scene notices keep page, scene, and panel responsibilities separat
   assert.equal(petSceneNotice.tone, "info");
   assert.equal(
     petSceneNotice.text,
-    "已选中宠物。右侧只负责状态查看和照料动作；聊天请使用独立聊天入口。"
+    "已选中宠物。右侧会弹出互动菜单，你可以选择查看状态，或前往独立聊天入口。"
   );
   assert.equal(bedSceneNotice.scope, "scene");
   assert.equal(bedSceneNotice.tone, "info");

@@ -54,7 +54,7 @@ export function createPetSelectionSceneNotice(): HomeSceneNotice {
   return {
     scope: "scene",
     tone: "info",
-    text: "已选中宠物。右侧只负责状态查看和照料动作；聊天请使用独立聊天入口。",
+    text: "已选中宠物。右侧会弹出互动菜单，你可以选择查看状态，或前往独立聊天入口。",
   };
 }
 

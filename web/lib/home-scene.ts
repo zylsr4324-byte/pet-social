@@ -20,6 +20,14 @@ export type HomeSceneBehavior = {
   summary: string;
 };
 
+export type PetInteractionMenuAction = "status" | "chat";
+
+export type PetInteractionMenuItem = {
+  action: PetInteractionMenuAction;
+  label: string;
+  description: string;
+};
+
 export const HOME_SCENE_OBJECTS: Record<
   HomeSceneObjectAction,
   HomeSceneObjectMeta
@@ -65,6 +73,19 @@ export const HOME_SCENE_OBJECTS: Record<
     fallbackMessage: "床当前只作为休息目标点，不会立即写入数值。",
   },
 };
+
+export const HOME_PET_INTERACTION_MENU_ITEMS: PetInteractionMenuItem[] = [
+  {
+    action: "status",
+    label: "查看状态面板",
+    description: "打开右侧状态面板，查看当前数值并继续执行照料动作。",
+  },
+  {
+    action: "chat",
+    label: "前往聊天入口",
+    description: "当前仍跳转到独立聊天页面，场景内聊天窗口留到后续步骤实现。",
+  },
+];
 
 export function getHomeSceneBehavior(status: PetStatus | null): HomeSceneBehavior {
   if (!status) {

@@ -24,9 +24,11 @@ import {
 } from "../../lib/pet";
 import type { SceneAction } from "../../lib/PetHomeScene";
 import {
+  HOME_PET_INTERACTION_MENU_ITEMS,
   HOME_SCENE_OBJECTS,
   type HomeSceneObjectAction,
   type HomeSceneObjectMeta,
+  type PetInteractionMenuAction,
 } from "../../lib/home-scene";
 import {
   buildHomeStatusFreshnessText,
@@ -102,6 +104,7 @@ export default function HomeScenePage() {
   const [pet, setPet] = useState<ApiPet | null>(null);
   const [status, setStatus] = useState<PetStatus | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isPetMenuOpen, setIsPetMenuOpen] = useState(false);
   const [isPetPanelOpen, setIsPetPanelOpen] = useState(false);
   const [pageStatusNotice, setPageStatusNotice] =
     useState<HomePageNotice | null>(null);
@@ -340,7 +343,7 @@ export default function HomeScenePage() {
     }
 
     if (action === "pet") {
-      setIsPetPanelOpen(true);
+      setIsPetMenuOpen(true);
       setSceneNotice(createPetSelectionSceneNotice());
       return;
     }
@@ -400,6 +403,12 @@ export default function HomeScenePage() {
     }
   };
 
+  const handlePetMenuAction = (action: PetInteractionMenuAction) => {
+    if (action === "status") {
+      setIsPetPanelOpen(true);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-white px-6 py-12 text-gray-900">
       <div className="mx-auto max-w-7xl">
@@ -427,7 +436,7 @@ export default function HomeScenePage() {
               家庭场景主页
             </h1>
             <p className="mt-3 max-w-3xl text-base leading-7 text-gray-600">
-              这是当前宠物的俯视角家庭场景。宠物会根据状态主动走向食盆、水盆或床；点击宠物只负责打开状态面板，固定物件则分成“立即互动”和“行为目标点”两类。
+              这是当前宠物的俯视角家庭场景。宠物会根据状态主动走向食盆、水盆或床；点击宠物会先弹出互动菜单，再决定查看状态或前往聊天入口，固定物件则分成“立即互动”和“行为目标点”两类。
             </p>
           </div>
 
@@ -555,7 +564,7 @@ export default function HomeScenePage() {
                       场景说明
                     </h2>
                     <p className="mt-2 text-sm leading-6 text-gray-600">
-                      点击宠物只会展开状态面板；固定物件则分成两类：立即互动点会直接调用接口，行为目标点只负责解释宠物当前会往哪里移动。
+                      点击宠物会先展开互动菜单，再选择查看状态或前往聊天入口；固定物件则分成两类：立即互动点会直接调用接口，行为目标点只负责解释宠物当前会往哪里移动。
                     </p>
                   </div>
 
@@ -601,6 +610,62 @@ export default function HomeScenePage() {
                 </div>
               </section>
 
+              {isPetMenuOpen ? (
+                <section className="rounded-[32px] border border-orange-100 bg-white p-6 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-xl font-semibold text-gray-900">
+                        宠物互动菜单
+                      </h2>
+                      <p className="mt-2 text-sm leading-6 text-gray-600">
+                        已选中 {pet.petName}。当前先通过菜单决定要查看状态，还是跳转到独立聊天页面。
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsPetMenuOpen(false)}
+                      className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:border-gray-400 hover:text-gray-900"
+                    >
+                      收起菜单
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid gap-3">
+                    {HOME_PET_INTERACTION_MENU_ITEMS.map((item) =>
+                      item.action === "status" ? (
+                        <button
+                          key={item.action}
+                          type="button"
+                          onClick={() => handlePetMenuAction(item.action)}
+                          className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-left transition hover:border-amber-300 hover:bg-amber-100"
+                        >
+                          <p className="text-sm font-semibold text-amber-900">
+                            {item.label}
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-amber-800">
+                            {item.description}
+                          </p>
+                        </button>
+                      ) : (
+                        <Link
+                          key={item.action}
+                          href="/chat"
+                          className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 text-left transition hover:border-gray-300 hover:bg-gray-100"
+                        >
+                          <p className="text-sm font-semibold text-gray-900">
+                            {item.label}
+                          </p>
+                          <p className="mt-2 text-sm leading-6 text-gray-600">
+                            {item.description}
+                          </p>
+                        </Link>
+                      )
+                    )}
+                  </div>
+                </section>
+              ) : null}
+
               {isPetPanelOpen ? (
                 <PetStatusPanel
                   petId={pet.id}
@@ -611,7 +676,7 @@ export default function HomeScenePage() {
                 />
               ) : (
                 <section className="rounded-[32px] border border-dashed border-gray-200 bg-gray-50 p-6 text-sm leading-7 text-gray-500">
-                  点击场景里的宠物，或者点右上按钮，就会打开状态面板。聊天请使用独立的聊天入口。
+                  点击场景里的宠物会先弹出互动菜单；如果你只想直接看状态，也可以用右上按钮打开状态面板。
                 </section>
               )}
 
