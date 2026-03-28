@@ -148,7 +148,7 @@ mood 枚举定义（前端、后端、数据库需保持一致）：
 - `POST /pets/{id}/play` — 玩耍（提升 affection，消耗 energy）
 - `POST /pets/{id}/clean` — 清洁（提升 cleanliness）
 
-**2.2 属性衰减：读时投影计算**
+**2.2 属性衰减：读时投影计算** ✅ 已完成
 
 不使用 Celery 或 BackgroundTasks 做定时衰减。当前阶段采用**读时投影计算**：
 
@@ -183,7 +183,7 @@ def apply_decay_and_save(pet: Pet, db: Session) -> None:
 优点：GET 无写副作用，可安全缓存、重放、并发访问；写操作集中在 POST 命令中。
 后续如需周期推送通知（如"宠物饿了"），再引入 APScheduler 或 Redis + worker。
 
-**2.3 心情计算**
+**2.3 心情计算** ✅ 已完成
 ```python
 def calculate_mood(pet: Pet) -> str:
     if pet.fullness < 20 or pet.hydration < 20:
