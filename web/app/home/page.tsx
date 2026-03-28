@@ -24,12 +24,22 @@ import {
 } from "../../lib/pet";
 import type { SceneAction } from "../../lib/PetHomeScene";
 import {
-  buildHomeSceneActionMessage,
   getHomeSceneBehavior,
   HOME_SCENE_OBJECTS,
   type HomeSceneObjectAction,
   type HomeSceneObjectMeta,
 } from "../../lib/home-scene";
+import {
+  createHomePageNotice,
+  createPetSelectionSceneNotice,
+  createSceneActionErrorNotice,
+  createSceneActionNetworkNotice,
+  createSceneActionSuccessNotice,
+  createSceneTargetNotice,
+  getHomeSceneNoticeClassName,
+  type HomePageNotice,
+  type HomeSceneNotice,
+} from "../../lib/home-scene-notice";
 import {
   PetStatusPanel,
   type PetStatus,
@@ -79,8 +89,9 @@ export default function HomeScenePage() {
   const [status, setStatus] = useState<PetStatus | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isPetPanelOpen, setIsPetPanelOpen] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [sceneMessage, setSceneMessage] = useState<string | null>(null);
+  const [pageStatusNotice, setPageStatusNotice] =
+    useState<HomePageNotice | null>(null);
+  const [sceneNotice, setSceneNotice] = useState<HomeSceneNotice | null>(null);
 
   const fetchPetStatus = async (
     activePetId: number,
@@ -97,7 +108,7 @@ export default function HomeScenePage() {
       setAuthToken(null);
       setPet(null);
       setStatus(null);
-      setStatusMessage(LOGIN_REQUIRED_MESSAGE);
+      setPageStatusNotice(createHomePageNotice(LOGIN_REQUIRED_MESSAGE, "info"));
       return null;
     }
 
@@ -122,7 +133,7 @@ export default function HomeScenePage() {
         const storedAuthToken = readStoredAuthToken();
         if (!storedAuthToken) {
           if (isMounted) {
-            setStatusMessage(LOGIN_REQUIRED_MESSAGE);
+            setPageStatusNotice(createHomePageNotice(LOGIN_REQUIRED_MESSAGE, "info"));
           }
           return;
         }
@@ -140,7 +151,9 @@ export default function HomeScenePage() {
 
           if (restoreResult.unauthorized) {
             if (isMounted) {
-              setStatusMessage(LOGIN_REQUIRED_MESSAGE);
+              setPageStatusNotice(
+                createHomePageNotice(LOGIN_REQUIRED_MESSAGE, "info")
+              );
               clearStoredAuth();
             }
             return;
@@ -151,7 +164,9 @@ export default function HomeScenePage() {
 
         if (!activePetId) {
           if (isMounted) {
-            setStatusMessage("你还没有宠物，先去创建一只再进入家庭场景。");
+            setPageStatusNotice(
+              createHomePageNotice("你还没有宠物，先去创建一只再进入家庭场景。")
+            );
           }
           return;
         }
@@ -165,17 +180,21 @@ export default function HomeScenePage() {
           if (isMounted) {
             clearStoredAuth();
             clearStoredPetId();
-            setStatusMessage(LOGIN_REQUIRED_MESSAGE);
+            setPageStatusNotice(
+              createHomePageNotice(LOGIN_REQUIRED_MESSAGE, "info")
+            );
           }
           return;
         }
 
         if (!petResponse.ok) {
           if (isMounted) {
-            setStatusMessage(
-              await getResponseErrorMessage(
-                petResponse,
-                HOME_LOAD_FAILURE_MESSAGE
+            setPageStatusNotice(
+              createHomePageNotice(
+                await getResponseErrorMessage(
+                  petResponse,
+                  HOME_LOAD_FAILURE_MESSAGE
+                )
               )
             );
           }
@@ -185,19 +204,22 @@ export default function HomeScenePage() {
         const petData: unknown = await petResponse.json();
         if (!isPetApiResponse(petData)) {
           if (isMounted) {
-            setStatusMessage("后端返回的宠物数据格式不正确。");
+            setPageStatusNotice(
+              createHomePageNotice("后端返回的宠物数据格式不正确。")
+            );
           }
           return;
         }
 
         if (isMounted) {
           setPet(petData.pet);
+          setPageStatusNotice(null);
         }
 
         await fetchPetStatus(petData.pet.id, storedAuthToken);
       } catch {
         if (isMounted) {
-          setStatusMessage(HOME_LOAD_FAILURE_MESSAGE);
+          setPageStatusNotice(createHomePageNotice(HOME_LOAD_FAILURE_MESSAGE));
         }
       } finally {
         if (isMounted) {
@@ -239,15 +261,13 @@ export default function HomeScenePage() {
 
     if (action === "pet") {
       setIsPetPanelOpen(true);
-      setSceneMessage(
-        "已选中宠物。右侧只负责状态查看和照料动作；聊天请使用独立聊天入口。"
-      );
+      setSceneNotice(createPetSelectionSceneNotice());
       return;
     }
 
     if (action === "bed") {
       setIsPetPanelOpen(true);
-      setSceneMessage(buildHomeSceneActionMessage(action));
+      setSceneNotice(createSceneTargetNotice(action));
       return;
     }
 
@@ -258,10 +278,13 @@ export default function HomeScenePage() {
       });
 
       if (!response.ok) {
-        setSceneMessage(
-          await getResponseErrorMessage(
-            response,
-            `${HOME_SCENE_OBJECTS[action].label}互动失败，请稍后再试。`
+        setSceneNotice(
+          createSceneActionErrorNotice(
+            action,
+            await getResponseErrorMessage(
+              response,
+              `${HOME_SCENE_OBJECTS[action].label}互动失败，请稍后再试。`
+            )
           )
         );
         return;
@@ -283,16 +306,17 @@ export default function HomeScenePage() {
         "message" in data &&
         typeof (data as { message?: unknown }).message === "string"
       ) {
-        setSceneMessage(
-          buildHomeSceneActionMessage(action, (data as { message: string }).message)
+        setSceneNotice(
+          createSceneActionSuccessNotice(
+            action,
+            (data as { message: string }).message
+          )
         );
       } else {
-        setSceneMessage(buildHomeSceneActionMessage(action));
+        setSceneNotice(createSceneActionSuccessNotice(action));
       }
     } catch {
-      setSceneMessage(
-        `${HOME_SCENE_OBJECTS[action].label}互动失败，请检查网络连接。`
-      );
+      setSceneNotice(createSceneActionNetworkNotice(action));
     }
   };
 
@@ -346,7 +370,7 @@ export default function HomeScenePage() {
           <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8">
             <h2 className="text-2xl font-semibold text-gray-900">请先登录</h2>
             <p className="mt-3 text-sm leading-7 text-gray-600">
-              {statusMessage || LOGIN_REQUIRED_MESSAGE}
+              {pageStatusNotice?.text || LOGIN_REQUIRED_MESSAGE}
             </p>
             <Link
               href="/login"
@@ -363,7 +387,7 @@ export default function HomeScenePage() {
               还没有家庭场景主角
             </h2>
             <p className="mt-3 text-sm leading-7 text-gray-600">
-              {statusMessage || "先创建宠物，再回来体验家庭场景。"}
+              {pageStatusNotice?.text || "先创建宠物，再回来体验家庭场景。"}
             </p>
             <Link
               href="/create-pet"
@@ -419,9 +443,11 @@ export default function HomeScenePage() {
                 ))}
               </div>
 
-              {sceneMessage ? (
-                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-700">
-                  {sceneMessage}
+              {sceneNotice ? (
+                <div
+                  className={`mt-4 rounded-2xl border px-4 py-3 text-sm leading-6 ${getHomeSceneNoticeClassName(sceneNotice.tone)}`}
+                >
+                  {sceneNotice.text}
                 </div>
               ) : null}
             </section>

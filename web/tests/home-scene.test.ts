@@ -7,6 +7,15 @@ import {
   getHomeSceneBehavior,
   HOME_SCENE_OBJECTS,
 } from "../lib/home-scene";
+import {
+  createHomePageNotice,
+  createPetSelectionSceneNotice,
+  createSceneActionErrorNotice,
+  createSceneActionSuccessNotice,
+  createSceneTargetNotice,
+  createStatusPanelErrorNotice,
+  createStatusPanelSuccessNotice,
+} from "../lib/home-scene-notice";
 import { PetStatusPanel, type PetStatus } from "../lib/PetStatusPanel";
 
 function createStatus(overrides: Partial<PetStatus> = {}): PetStatus {
@@ -73,6 +82,54 @@ runTest("buildHomeSceneActionMessage falls back when backend detail is absent", 
     "床当前只作为休息目标点，不会立即写入数值。"
   );
   assert.equal(buildHomeSceneActionMessage("feed", "已喂食。"), "已喂食。");
+});
+
+runTest("home scene notices keep page, scene, and panel responsibilities separate", () => {
+  const pageNotice = createHomePageNotice("请先登录。", "info");
+  const petSceneNotice = createPetSelectionSceneNotice();
+  const bedSceneNotice = createSceneTargetNotice("bed");
+  const sceneSuccessNotice = createSceneActionSuccessNotice("feed", "已喂食。");
+  const sceneErrorNotice = createSceneActionErrorNotice("feed");
+  const panelSuccessNotice = createStatusPanelSuccessNotice("喂食");
+  const panelErrorNotice = createStatusPanelErrorNotice("喂食");
+
+  assert.deepEqual(pageNotice, {
+    scope: "page",
+    tone: "info",
+    text: "请先登录。",
+  });
+  assert.equal(petSceneNotice.scope, "scene");
+  assert.equal(petSceneNotice.tone, "info");
+  assert.equal(
+    petSceneNotice.text,
+    "已选中宠物。右侧只负责状态查看和照料动作；聊天请使用独立聊天入口。"
+  );
+  assert.equal(bedSceneNotice.scope, "scene");
+  assert.equal(bedSceneNotice.tone, "info");
+  assert.equal(
+    bedSceneNotice.text,
+    "床当前只作为休息目标点，不会立即写入数值。"
+  );
+  assert.deepEqual(sceneSuccessNotice, {
+    scope: "scene",
+    tone: "success",
+    text: "已喂食。",
+  });
+  assert.deepEqual(sceneErrorNotice, {
+    scope: "scene",
+    tone: "error",
+    text: "食盆互动失败，请稍后再试。",
+  });
+  assert.deepEqual(panelSuccessNotice, {
+    scope: "panel",
+    tone: "success",
+    text: "喂食成功。",
+  });
+  assert.deepEqual(panelErrorNotice, {
+    scope: "panel",
+    tone: "error",
+    text: "喂食失败了，请稍后再试。",
+  });
 });
 
 runTest("PetStatusPanel follows the parent-owned status snapshot", () => {

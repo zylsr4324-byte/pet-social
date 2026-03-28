@@ -4,6 +4,13 @@ import { useState } from "react";
 
 import { buildAuthHeaders } from "./auth";
 import { API_BASE_URL } from "./constants";
+import {
+  createStatusPanelErrorNotice,
+  createStatusPanelNetworkNotice,
+  createStatusPanelSuccessNotice,
+  getStatusPanelNoticeClassName,
+  type StatusPanelNotice,
+} from "./home-scene-notice";
 
 export type PetStatus = {
   fullness: number;
@@ -106,7 +113,7 @@ export function PetStatusPanel({
   onStatusChange,
 }: PetStatusPanelProps) {
   const [isActing, setIsActing] = useState(false);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [panelNotice, setPanelNotice] = useState<StatusPanelNotice | null>(null);
 
   const syncStatus = (nextStatus: PetStatus) => {
     onStatusChange?.(nextStatus);
@@ -118,7 +125,7 @@ export function PetStatusPanel({
     }
 
     setIsActing(true);
-    setActionMessage(null);
+    setPanelNotice(null);
 
     try {
       const response = await fetch(`${API_BASE_URL}/pets/${petId}/${endpoint}`, {
@@ -127,7 +134,7 @@ export function PetStatusPanel({
       });
 
       if (!response.ok) {
-        setActionMessage(`${label}失败了，请稍后再试。`);
+        setPanelNotice(createStatusPanelErrorNotice(label));
         return;
       }
 
@@ -148,12 +155,17 @@ export function PetStatusPanel({
         "message" in data &&
         typeof (data as { message?: unknown }).message === "string"
       ) {
-        setActionMessage((data as { message: string }).message);
+        setPanelNotice(
+          createStatusPanelSuccessNotice(
+            label,
+            (data as { message: string }).message
+          )
+        );
       } else {
-        setActionMessage(`${label}成功。`);
+        setPanelNotice(createStatusPanelSuccessNotice(label));
       }
     } catch {
-      setActionMessage(`${label}失败了，请检查网络连接。`);
+      setPanelNotice(createStatusPanelNetworkNotice(label));
     } finally {
       setIsActing(false);
     }
@@ -206,8 +218,12 @@ export function PetStatusPanel({
         ))}
       </div>
 
-      {actionMessage ? (
-        <p className="mt-3 text-sm text-amber-700">{actionMessage}</p>
+      {panelNotice ? (
+        <p
+          className={`mt-3 text-sm ${getStatusPanelNoticeClassName(panelNotice.tone)}`}
+        >
+          {panelNotice.text}
+        </p>
       ) : null}
     </div>
   );
