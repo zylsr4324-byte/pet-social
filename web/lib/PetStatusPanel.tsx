@@ -12,6 +12,10 @@ import {
   getStatusPanelNoticeClassName,
   type StatusPanelNotice,
 } from "./home-scene-notice";
+import {
+  getPetStatusEmptyState,
+  type PetStatusViewState,
+} from "./pet-status-view";
 
 export type PetStatus = {
   fullness: number;
@@ -26,6 +30,7 @@ type PetStatusPanelProps = {
   petId: number;
   authToken: string;
   status: PetStatus | null;
+  statusViewState: PetStatusViewState;
   onStatusChange?: (status: PetStatus) => void;
 };
 
@@ -49,7 +54,7 @@ const MOOD_LABELS: Record<string, { label: string; className: string }> = {
 };
 
 const STAT_CONFIG = [
-  { key: "fullness" as const, label: "饱食度", color: "bg-orange-400", icon: "🍖" },
+  { key: "fullness" as const, label: "饱食度", color: "bg-orange-400", icon: "🍚" },
   { key: "hydration" as const, label: "水分值", color: "bg-blue-400", icon: "💧" },
   { key: "affection" as const, label: "好感度", color: "bg-pink-400", icon: "💗" },
   { key: "energy" as const, label: "精力值", color: "bg-yellow-400", icon: "⚡" },
@@ -57,9 +62,9 @@ const STAT_CONFIG = [
 ];
 
 const ACTIONS = [
-  { endpoint: "feed", label: "喂食", icon: "🍖" },
+  { endpoint: "feed", label: "喂食", icon: "🍚" },
   { endpoint: "drink", label: "喂水", icon: "💧" },
-  { endpoint: "play", label: "玩耍", icon: "🧶" },
+  { endpoint: "play", label: "玩耍", icon: "🎾" },
   { endpoint: "clean", label: "清洁", icon: "🧼" },
 ];
 
@@ -111,6 +116,7 @@ export function PetStatusPanel({
   petId,
   authToken,
   status,
+  statusViewState,
   onStatusChange,
 }: PetStatusPanelProps) {
   const [isActing, setIsActing] = useState(false);
@@ -192,9 +198,14 @@ export function PetStatusPanel({
   };
 
   if (!status) {
+    const emptyState = getPetStatusEmptyState(statusViewState);
+
     return (
       <div className="rounded-2xl border border-gray-200 bg-gray-50 p-6">
-        <p className="text-sm text-gray-500">正在读取宠物状态...</p>
+        <p className="text-sm font-medium text-gray-700">{emptyState.title}</p>
+        <p className="mt-2 text-sm leading-6 text-gray-500">
+          {emptyState.description}
+        </p>
       </div>
     );
   }

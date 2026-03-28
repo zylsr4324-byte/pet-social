@@ -20,6 +20,10 @@ import {
   getNoticeAutoDismissMs,
 } from "../lib/home-scene-notice";
 import { PetStatusPanel, type PetStatus } from "../lib/PetStatusPanel";
+import {
+  getHomeStatusSummaryText,
+  getPetStatusEmptyState,
+} from "../lib/pet-status-view";
 
 function createStatus(overrides: Partial<PetStatus> = {}): PetStatus {
   return {
@@ -155,6 +159,21 @@ runTest("home scene notices keep page, scene, and panel responsibilities separat
   assert.equal(getNoticeAutoDismissMs("panel"), 3200);
 });
 
+runTest("pet status view distinguishes loading and unavailable empty states", () => {
+  assert.equal(getHomeStatusSummaryText(null, "loading"), "状态读取中");
+  assert.equal(getHomeStatusSummaryText(null, "unavailable"), "状态暂不可用");
+  assert.equal(getHomeStatusSummaryText(createStatus(), "ready"), "Idle：宠物会在房间里随意巡视");
+
+  assert.deepEqual(getPetStatusEmptyState("loading"), {
+    title: "正在读取状态",
+    description: "页面正在读取宠物当前状态，请稍等一下。",
+  });
+  assert.deepEqual(getPetStatusEmptyState("unavailable"), {
+    title: "暂时拿不到状态",
+    description: "页面会继续自动重试同步，你可以先浏览家庭场景，稍后再回来查看。",
+  });
+});
+
 runTest("PetStatusPanel follows the parent-owned status snapshot", () => {
   const firstMarkup = renderToStaticMarkup(
     createElement(PetStatusPanel, {
@@ -167,6 +186,7 @@ runTest("PetStatusPanel follows the parent-owned status snapshot", () => {
         energy: 44,
         cleanliness: 55,
       }),
+      statusViewState: "ready",
     })
   );
 
@@ -181,6 +201,7 @@ runTest("PetStatusPanel follows the parent-owned status snapshot", () => {
         energy: 99,
         cleanliness: 12,
       }),
+      statusViewState: "ready",
     })
   );
 
@@ -190,6 +211,20 @@ runTest("PetStatusPanel follows the parent-owned status snapshot", () => {
   assert.match(secondMarkup, />77</);
   assert.doesNotMatch(secondMarkup, />11</);
   assert.doesNotMatch(secondMarkup, />22</);
+});
+
+runTest("PetStatusPanel shows degraded empty copy when status is unavailable", () => {
+  const unavailableMarkup = renderToStaticMarkup(
+    createElement(PetStatusPanel, {
+      petId: 1,
+      authToken: "token",
+      status: null,
+      statusViewState: "unavailable",
+    })
+  );
+
+  assert.match(unavailableMarkup, /暂时拿不到状态/);
+  assert.match(unavailableMarkup, /会继续自动重试同步/);
 });
 
 console.log("Home scene regression checks passed.");

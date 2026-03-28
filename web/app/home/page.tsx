@@ -24,7 +24,6 @@ import {
 } from "../../lib/pet";
 import type { SceneAction } from "../../lib/PetHomeScene";
 import {
-  getHomeSceneBehavior,
   HOME_SCENE_OBJECTS,
   type HomeSceneObjectAction,
   type HomeSceneObjectMeta,
@@ -51,6 +50,10 @@ import {
   isPetStatus,
 } from "../../lib/PetStatusPanel";
 import { PetSwitcher } from "../../lib/PetSwitcher";
+import {
+  getHomeStatusSummaryText,
+  type PetStatusViewState,
+} from "../../lib/pet-status-view";
 
 const PetHomeScene = dynamic(
   () =>
@@ -105,11 +108,14 @@ export default function HomeScenePage() {
   const [statusSyncNotice, setStatusSyncNotice] =
     useState<HomeStatusSyncNotice | null>(null);
   const [lastStatusSyncedAt, setLastStatusSyncedAt] = useState<number | null>(null);
+  const [statusViewState, setStatusViewState] =
+    useState<PetStatusViewState>("loading");
 
   const applyStatusSnapshot = (nextStatus: PetStatus) => {
     setStatus(nextStatus);
     setStatusSyncNotice(null);
     setLastStatusSyncedAt(Date.now());
+    setStatusViewState("ready");
   };
 
   const fetchPetStatus = useEffectEvent(async (
@@ -130,6 +136,7 @@ export default function HomeScenePage() {
         setStatus(null);
         setStatusSyncNotice(null);
         setLastStatusSyncedAt(null);
+        setStatusViewState("loading");
         setPageStatusNotice(createHomePageNotice(LOGIN_REQUIRED_MESSAGE, "info"));
         return { kind: "unauthorized" };
       }
@@ -157,6 +164,9 @@ export default function HomeScenePage() {
     const result = await fetchPetStatus(activePetId, token);
     if (result.kind === "failed") {
       setStatusSyncNotice(createHomeStatusSyncNotice());
+      if (!status) {
+        setStatusViewState("unavailable");
+      }
     }
   });
 
@@ -249,10 +259,12 @@ export default function HomeScenePage() {
         if (isMounted) {
           setPet(petData.pet);
           setPageStatusNotice(null);
+          setStatusViewState("loading");
         }
 
         const statusResult = await fetchPetStatus(petData.pet.id, storedAuthToken);
         if (isMounted && statusResult.kind === "failed") {
+          setStatusViewState("unavailable");
           setStatusSyncNotice(createHomeStatusSyncNotice());
         }
       } catch {
@@ -277,6 +289,7 @@ export default function HomeScenePage() {
     if (!pet || !authToken) {
       setStatusSyncNotice(null);
       setLastStatusSyncedAt(null);
+      setStatusViewState("loading");
       return;
     }
 
@@ -476,7 +489,7 @@ export default function HomeScenePage() {
                 </div>
 
                 <div className="rounded-full border border-white/80 bg-white/90 px-4 py-2 text-xs font-medium text-amber-700 shadow-sm">
-                  {getHomeSceneBehavior(status).summary}
+                  {getHomeStatusSummaryText(status, statusViewState)}
                 </div>
               </div>
 
@@ -583,6 +596,7 @@ export default function HomeScenePage() {
                   petId={pet.id}
                   authToken={authToken}
                   status={status}
+                  statusViewState={statusViewState}
                   onStatusChange={applyStatusSnapshot}
                 />
               ) : (

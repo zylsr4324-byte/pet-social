@@ -41,11 +41,14 @@ import {
   type PetStatus,
   isPetStatus,
 } from "../../lib/PetStatusPanel";
+import { type PetStatusViewState } from "../../lib/pet-status-view";
 
 export default function MyPetPage() {
   const [pet, setPet] = useState<PetProfile | null>(null);
   const [petId, setPetId] = useState<number | null>(null);
   const [petStatus, setPetStatus] = useState<PetStatus | null>(null);
+  const [petStatusViewState, setPetStatusViewState] =
+    useState<PetStatusViewState>("loading");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -54,6 +57,11 @@ export default function MyPetPage() {
     message: string;
   } | null>(null);
   const [recentChatStatus, setRecentChatStatus] = useState<string | null>(null);
+
+  const applyPetStatusSnapshot = (nextStatus: PetStatus) => {
+    setPetStatus(nextStatus);
+    setPetStatusViewState("ready");
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -335,6 +343,7 @@ export default function MyPetPage() {
 
     if (!pet || !petId || !authToken) {
       setPetStatus(null);
+      setPetStatusViewState("loading");
       return () => {
         isMounted = false;
       };
@@ -356,6 +365,7 @@ export default function MyPetPage() {
             setPet(null);
             setPetId(null);
             setPetStatus(null);
+            setPetStatusViewState("loading");
             setMessages([]);
             setStatusMessage({
               type: "info",
@@ -369,17 +379,24 @@ export default function MyPetPage() {
         if (!response.ok) {
           if (isMounted) {
             setPetStatus(null);
+            setPetStatusViewState("unavailable");
           }
           return;
         }
 
         const data: unknown = await response.json();
         if (isMounted) {
-          setPetStatus(isPetStatus(data) ? data : null);
+          if (isPetStatus(data)) {
+            applyPetStatusSnapshot(data);
+          } else {
+            setPetStatus(null);
+            setPetStatusViewState("unavailable");
+          }
         }
       } catch {
         if (isMounted) {
           setPetStatus(null);
+          setPetStatusViewState("unavailable");
         }
       }
     };
@@ -636,7 +653,8 @@ export default function MyPetPage() {
                     petId={petId}
                     authToken={authToken}
                     status={petStatus}
-                    onStatusChange={setPetStatus}
+                    statusViewState={petStatusViewState}
+                    onStatusChange={applyPetStatusSnapshot}
                   />
                 )}
 
