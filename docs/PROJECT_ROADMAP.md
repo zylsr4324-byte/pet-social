@@ -141,12 +141,12 @@ mood 枚举定义（前端、后端、数据库需保持一致）：
 
 #### 实现步骤
 
-**2.1 后端 API**
-- `GET /pets/{id}/status` — 获取宠物当前状态（含实时衰减计算）
-- `POST /pets/{id}/feed` — 喂食（提升 fullness）
-- `POST /pets/{id}/drink` — 喂水（提升 hydration）
-- `POST /pets/{id}/play` — 玩耍（提升 affection，消耗 energy）
-- `POST /pets/{id}/clean` — 清洁（提升 cleanliness）
+**2.1 后端 API** ✅ 已完成
+- ✅ `GET /pets/{id}/status` — 获取宠物当前状态（含实时衰减计算）
+- ✅ `POST /pets/{id}/feed` — 喂食（提升 fullness）
+- ✅ `POST /pets/{id}/drink` — 喂水（提升 hydration）
+- ✅ `POST /pets/{id}/play` — 玩耍（提升 affection，消耗 energy）
+- ✅ `POST /pets/{id}/clean` — 清洁（提升 cleanliness）
 
 **2.2 属性衰减：读时投影计算** ✅ 已完成
 

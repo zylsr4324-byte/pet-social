@@ -97,3 +97,18 @@ class AuthLogoutResponse(BaseModel):
 class AuthMeResponse(BaseModel):
     message: str
     user: UserResponse
+
+
+class PetStatusResponse(BaseModel):
+    fullness: int
+    hydration: int
+    affection: int
+    energy: int
+    cleanliness: int
+    mood: str
+
+
+class PetActionResponse(BaseModel):
+    message: str
+    status: PetStatusResponse
+
