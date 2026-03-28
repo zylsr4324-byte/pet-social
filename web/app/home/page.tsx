@@ -51,6 +51,7 @@ import {
 } from "../../lib/PetStatusPanel";
 import { PetSwitcher } from "../../lib/PetSwitcher";
 import {
+  getHomeStatusDisplayPolicy,
   getHomeStatusSummaryText,
   type PetStatusViewState,
 } from "../../lib/pet-status-view";
@@ -110,6 +111,11 @@ export default function HomeScenePage() {
   const [lastStatusSyncedAt, setLastStatusSyncedAt] = useState<number | null>(null);
   const [statusViewState, setStatusViewState] =
     useState<PetStatusViewState>("loading");
+  const statusDisplayPolicy = getHomeStatusDisplayPolicy(
+    status,
+    statusViewState,
+    isPetPanelOpen
+  );
 
   const applyStatusSnapshot = (nextStatus: PetStatus) => {
     setStatus(nextStatus);
@@ -163,8 +169,10 @@ export default function HomeScenePage() {
   ) => {
     const result = await fetchPetStatus(activePetId, token);
     if (result.kind === "failed") {
-      setStatusSyncNotice(createHomeStatusSyncNotice());
-      if (!status) {
+      if (status) {
+        setStatusSyncNotice(createHomeStatusSyncNotice());
+      } else {
+        setStatusSyncNotice(null);
         setStatusViewState("unavailable");
       }
     }
@@ -264,8 +272,8 @@ export default function HomeScenePage() {
 
         const statusResult = await fetchPetStatus(petData.pet.id, storedAuthToken);
         if (isMounted && statusResult.kind === "failed") {
+          setStatusSyncNotice(null);
           setStatusViewState("unavailable");
-          setStatusSyncNotice(createHomeStatusSyncNotice());
         }
       } catch {
         if (isMounted) {
@@ -488,9 +496,11 @@ export default function HomeScenePage() {
                   </h2>
                 </div>
 
-                <div className="rounded-full border border-white/80 bg-white/90 px-4 py-2 text-xs font-medium text-amber-700 shadow-sm">
-                  {getHomeStatusSummaryText(status, statusViewState)}
-                </div>
+                {statusDisplayPolicy.showSummaryBadge ? (
+                  <div className="rounded-full border border-white/80 bg-white/90 px-4 py-2 text-xs font-medium text-amber-700 shadow-sm">
+                    {getHomeStatusSummaryText(status, statusViewState)}
+                  </div>
+                ) : null}
               </div>
 
               <PetHomeScene
@@ -520,7 +530,7 @@ export default function HomeScenePage() {
                 ))}
               </div>
 
-              {statusSyncNotice ? (
+              {statusDisplayPolicy.showSyncNotice && statusSyncNotice ? (
                 <div
                   className={`mt-3 rounded-2xl border px-4 py-3 text-sm leading-6 ${getHomeStatusSyncNoticeClassName(statusSyncNotice.tone)}`}
                 >

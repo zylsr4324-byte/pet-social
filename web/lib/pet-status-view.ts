@@ -8,6 +8,11 @@ export type PetStatusEmptyState = {
   description: string;
 };
 
+export type HomeStatusDisplayPolicy = {
+  showSummaryBadge: boolean;
+  showSyncNotice: boolean;
+};
+
 export function getHomeStatusSummaryText(
   status: PetStatus | null,
   viewState: PetStatusViewState
@@ -17,6 +22,32 @@ export function getHomeStatusSummaryText(
   }
 
   return getHomeSceneBehavior(status).summary;
+}
+
+export function getHomeStatusDisplayPolicy(
+  status: PetStatus | null,
+  viewState: PetStatusViewState,
+  isStatusPanelOpen: boolean
+): HomeStatusDisplayPolicy {
+  if (status) {
+    return {
+      showSummaryBadge: true,
+      showSyncNotice: true,
+    };
+  }
+
+  if (isStatusPanelOpen) {
+    return {
+      showSummaryBadge: false,
+      showSyncNotice: false,
+    };
+  }
+
+  return {
+    showSummaryBadge:
+      viewState === "loading" || viewState === "unavailable",
+    showSyncNotice: false,
+  };
 }
 
 export function getPetStatusEmptyState(

@@ -21,6 +21,7 @@ import {
 } from "../lib/home-scene-notice";
 import { PetStatusPanel, type PetStatus } from "../lib/PetStatusPanel";
 import {
+  getHomeStatusDisplayPolicy,
   getHomeStatusSummaryText,
   getPetStatusEmptyState,
 } from "../lib/pet-status-view";
@@ -163,6 +164,18 @@ runTest("pet status view distinguishes loading and unavailable empty states", ()
   assert.equal(getHomeStatusSummaryText(null, "loading"), "状态读取中");
   assert.equal(getHomeStatusSummaryText(null, "unavailable"), "状态暂不可用");
   assert.equal(getHomeStatusSummaryText(createStatus(), "ready"), "Idle：宠物会在房间里随意巡视");
+  assert.deepEqual(getHomeStatusDisplayPolicy(createStatus(), "ready", false), {
+    showSummaryBadge: true,
+    showSyncNotice: true,
+  });
+  assert.deepEqual(getHomeStatusDisplayPolicy(null, "loading", false), {
+    showSummaryBadge: true,
+    showSyncNotice: false,
+  });
+  assert.deepEqual(getHomeStatusDisplayPolicy(null, "unavailable", true), {
+    showSummaryBadge: false,
+    showSyncNotice: false,
+  });
 
   assert.deepEqual(getPetStatusEmptyState("loading"), {
     title: "正在读取状态",
