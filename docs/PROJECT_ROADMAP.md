@@ -13,7 +13,7 @@
 
 ---
 
-## 当前完成情况（v0.1 - 基础聊天版本）
+## 当前完成情况（已推进到 v0.3，Phase 3 进行中）
 
 ### 已实现功能
 
@@ -35,12 +35,32 @@
 - **上下文记忆**：保存聊天历史（最近 8 条消息）
 - **兜底回复**：LLM 失败时的性格化备用回复
 
-#### 4. 技术架构
+#### 4. 宠物生存系统（v0.2） ✅
+- 宠物状态字段已接入数据库迁移
+- `GET /pets/{id}/status` 实时返回投影状态
+- `feed / drink / play / clean` 互动命令已完成
+- mood 计算已接入状态与聊天
+- my-pet 页面已有状态面板
+
+#### 5. 站内社交引擎（v0.2.5） ✅
+- PetTask / PetFriendship / PetConversation / PetSocialMessage 已落库
+- 好友请求、接受、拒绝接口已完成
+- 宠物间站内消息与社交回合已完成
+- 主人可查看宠物的社交记录与对话
+
+#### 6. 2D 家庭场景（v0.3，基础版） 🚧
+- `/home` 页面已完成并接入 Phaser.js
+- 客厅 / 厨房 / 卧室三块基础房间已完成
+- 固定交互物件已完成：食盆、水盆、床、玩具
+- 宠物会根据状态在场景中移动
+- 点击宠物可打开状态面板，聊天目前仍通过快捷入口跳转
+
+#### 7. 技术架构
 - **前端**：Next.js 16 + React 19 + TypeScript + Tailwind CSS 4
 - **后端**：FastAPI + SQLAlchemy + PostgreSQL
 - **环境预留**：Redis 容器已启动，业务层暂未接入
 - **部署**：Docker Compose 一键启动（api + postgres + redis）
-- **代码质量**：模块化重构完成，800+ 行重复代码消除
+- **代码质量**：已完成模块化拆分，核心页面与服务已按阶段拆开
 
 ### 当前数据模型
 
@@ -59,15 +79,29 @@ Message (主人与宠物的聊天消息)
 
 AuthSession (登录会话)
 ├── id, user_id (FK → User), token, created_at
+
+PetTask (站内宠物任务)
+├── id, target_pet_id, source_pet_id, task_type, state
+├── input_text, output_text, created_at, completed_at
+
+PetFriendship (好友关系)
+├── id, pet_a_id, pet_b_id, initiated_by, status
+├── created_at, accepted_at
+
+PetConversation (宠物私聊会话)
+├── id, pet_a_id, pet_b_id, created_at
+
+PetSocialMessage (宠物间消息)
+├── id, conversation_id, sender_pet_id, content, created_at
 ```
 
 ### 已知技术债
 
 | 问题 | 说明 |
 |------|------|
-| 无数据库迁移工具 | 当前用 `create_all()` + 手写 `ALTER TABLE`，后续改表会越来越难维护 |
-| 前端只取 `pets[0]` | 后端已支持多宠物列表，但前端缺少宠物切换能力 |
 | Redis 未使用 | 容器已启动，但没有任何业务读写代码 |
+| 家庭场景聊天仍未直达 | 当前点击宠物会打开状态面板，但聊天仍通过快捷入口跳转到 `/chat` |
+| A2A 协议层未开始 | Phase 4 相关 Agent Card、JSON-RPC 入口、Task 映射都还没实现 |
 
 ---
 
@@ -223,7 +257,7 @@ def calculate_mood(pet: Pet) -> str:
 
 #### 实现步骤
 
-**2.5.1 站内 Task 模型**
+**2.5.1 站内 Task 模型** ✅ 已完成
 ```python
 class PetTask(Base):
     """站内宠物任务（后续可适配为 A2A Task）"""
@@ -240,24 +274,25 @@ class PetTask(Base):
     completed_at: datetime | None
 ```
 
-**2.5.2 站内宠物间对话服务**
-- `POST /pets/{id}/social/send` — 以某只宠物身份向另一只发消息
-- 内部调用目标宠物的 LLM 性格引擎生成回复
-- 对话记录写入 PetTask + PetSocialMessage
+**2.5.2 站内宠物间对话服务** ✅ 已完成
+- ✅ `POST /pets/{id}/social/send` — 以某只宠物身份向另一只发消息
+- ✅ 内部调用目标宠物的 LLM 性格引擎生成回复
+- ✅ 对话记录写入 PetTask + PetSocialMessage
 
-**2.5.3 好友关系基础**
-- 复用 Phase 5 设计的 PetFriendship 模型（pet_a_id < pet_b_id 去重）
-- `POST /pets/{id}/friends/request` — 发送好友请求
-- `POST /pets/{id}/friends/{friend_id}/accept` — 接受
-- `GET /pets/{id}/friends` — 列表
+**2.5.3 好友关系基础** ✅ 已完成
+- ✅ 复用 Phase 5 设计的 PetFriendship 模型（pet_a_id < pet_b_id 去重）
+- ✅ `POST /pets/{id}/friends/request` — 发送好友请求
+- ✅ `POST /pets/{id}/friends/{friend_id}/accept` — 接受
+- ✅ `POST /pets/{id}/friends/{friend_id}/reject` — 拒绝
+- ✅ `GET /pets/{id}/friends` — 列表
 
-**2.5.4 社交触发机制**
+**2.5.4 社交触发机制** ✅ 已完成（MVP 版本）
 
 MVP 阶段**不做真正的自主社交**（没有 scheduler/worker 基础设施）。
 采用以下两种触发方式：
 
-- **手动触发**：主人在社区页点击"让宠物去打招呼"按钮，触发一次社交回合
-- **命令式社交回合**：`POST /pets/{id}/social/round` — 后端检查性格、配额、冷却后，自动选择一个合适的对象发起交互
+- ✅ **手动触发**：当前通过 `/social` 页面由主人手动触发
+- ✅ **命令式社交回合**：`POST /pets/{id}/social/round` — 当前后端会自动选择一个合适对象发起交互
 
 这样"社交行为"不依赖用户是否打开页面，也不需要后台 worker。
 真正的自主社交（定时 worker 轮询触发）在 Phase 7 引入 APScheduler 后实现。
@@ -270,7 +305,7 @@ MVP 阶段**不做真正的自主社交**（没有 scheduler/worker 基础设施
 - PetTask 记录完整保留每次交互的输入输出
 - 主人可以查看自己宠物的社交记录
 
-### Phase 3: 2D 家庭场景（v0.3）
+### Phase 3: 2D 家庭场景（v0.3） 🚧 进行中（基础版已完成）
 
 #### 目标
 从纯文字界面升级到俯视角 2D 可视化家庭场景。
@@ -281,33 +316,33 @@ MVP 阶段**不做真正的自主社交**（没有 scheduler/worker 基础设施
 
 #### 实现步骤
 
-**3.1 场景设计**
-- Tilemap 网格地图（20x20 格子）
-- 初始房间：客厅 + 卧室 + 厨房（简化版单层）
-- **固定交互物件**（硬编码位置，不可移动）：食盆、水盆、床、玩具各一个
-- 宠物精灵：根据品种选择不同 sprite
+**3.1 场景设计** 🚧 部分完成
+- ✅ Tilemap 网格地图（20x20 格子）
+- ✅ 初始房间：客厅 + 卧室 + 厨房（简化版单层）
+- ✅ **固定交互物件**（硬编码位置，不可移动）：食盆、水盆、床、玩具各一个
+- ⬜ 宠物精灵：根据品种选择不同 sprite（当前为通用占位宠物形象）
 
 > 注：Phase 3 的家具是固定位置的交互点，不是可编辑的家具系统。
 > 可编辑布局、家具模板、自由放置规则在 Phase 6 实现。
 
-**3.2 前端实现**
-- 新建 `/home` 页面（家庭场景主页）
-- 集成 Phaser.js 到 Next.js（dynamic import, SSR 关闭）
-- 俯视角正交相机
-- 宠物移动动画（Tween 补间）
-- 点击宠物弹出互动菜单（喂食/聊天/状态）
+**3.2 前端实现** 🚧 部分完成
+- ✅ 新建 `/home` 页面（家庭场景主页）
+- ✅ 集成 Phaser.js 到 Next.js（dynamic import, SSR 关闭）
+- ✅ 俯视角 2D 场景已可运行
+- ✅ 宠物移动动画（Tween 补间）
+- ⬜ 点击宠物弹出完整互动菜单（当前为打开状态面板）
 
-**3.3 宠物行为 AI（前端状态机）**
-- Idle：随机走动
-- Hungry：自动走向食盆
-- Thirsty：走向水盆
-- Tired：走向床休息
-- 状态切换基于 `GET /pets/{id}/status` 返回的属性
+**3.3 宠物行为 AI（前端状态机）** ✅ 已完成（基础版）
+- ✅ Idle：随机走动
+- ✅ Hungry：自动走向食盆
+- ✅ Thirsty：走向水盆
+- ✅ Tired：走向床休息
+- ✅ 状态切换基于 `GET /pets/{id}/status` 返回的属性
 
-**3.4 交互集成**
-- 点击宠物 → 显示状态面板（复用 Phase 2 的 UI）
-- 点击食盆 → 触发 `POST /pets/{id}/feed`
-- 点击宠物 → 打开聊天窗口（复用现有 chat 功能）
+**3.4 交互集成** 🚧 部分完成
+- ✅ 点击宠物 → 显示状态面板（复用 Phase 2 的 UI）
+- ✅ 点击食盆 / 水盆 / 玩具 → 触发对应互动
+- ⬜ 点击宠物 → 在场景内直接打开聊天窗口（当前仍通过快捷入口跳转到现有 `/chat` 页面）
 
 **预计工作量**：可跑通 7-10 天 / 可上线 14-18 天
 
@@ -633,8 +668,8 @@ class PlacedFurniture(Base):
 | **v0.1** | 基础聊天版本 | ✅ 已完成 | - | - |
 | **v0.1.5** | Alembic 迁移 + 多宠物切换 | ✅ 已完成 | 2-3 天 | 4-5 天 |
 | **v0.2** | 宠物生存系统 | ✅ 已完成 | 3-4 天 | 5-7 天 |
-| **v0.2.5** | 站内社交引擎 | ⬜ 待开始 | 5-7 天 | 8-12 天 |
-| **v0.3** | 2D 家庭场景 | ⬜ 待开始 | 7-10 天 | 14-18 天 |
+| **v0.2.5** | 站内社交引擎 | ✅ 已完成 | 5-7 天 | 8-12 天 |
+| **v0.3** | 2D 家庭场景 | 🚧 进行中（基础版已完成） | 7-10 天 | 14-18 天 |
 | **v0.4** | A2A 协议适配 | ⬜ 待开始 | 7-10 天 | 14-18 天 |
 | **v0.5** | 宠物社区 | ⬜ 待开始 | 10-14 天 | 18-24 天 |
 | **v0.6** | 家具系统 | ⬜ 待开始 | 7-10 天 | 12-16 天 |
@@ -675,11 +710,11 @@ v1.0 完善上线      （引入 worker，实现真正自主社交）
 
 ## 建议的下一步
 
-**从 Phase 1.5（基础设施补齐）开始**，原因：
+**先补齐 Phase 3 的剩余细项，再进入 Phase 4**，原因：
 
-1. **Alembic 是硬性前置**：后续每个阶段都要改表，没有迁移工具会越来越难维护
-2. **多宠物是基础能力**：社区、好友、A2A、家具都依赖"当前选中哪只宠物"
-3. **工作量小**：2-3 天可跑通，投入产出比最高
+1. **当前 Phase 3 还未完全收口**：场景内聊天窗口、完整互动菜单、按品种 sprite 仍未完成
+2. **Phase 4 依赖边界稳定**：A2A 适配层应该建立在已稳定的站内社交和家庭场景基础之上
+3. **适合小步推进**：建议先完成 `3.4 点击宠物直接打开聊天窗口` 这一小点，再继续下一项
 
 ---
 
