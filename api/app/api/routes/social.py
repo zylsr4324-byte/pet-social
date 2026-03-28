@@ -19,6 +19,7 @@ from app.schemas import (
 )
 from app.services.auth import get_current_user
 from app.services.pet_social import (
+    build_social_round_result_message,
     build_friend_request_message,
     build_friendship_response,
     build_round_opening,
@@ -148,7 +149,7 @@ def request_friendship(
         ) from error
 
     return FriendshipActionResponse(
-        message="好友请求已发出。",
+        message=f"已向{target_pet.pet_name}发送好友请求，等待对方处理。",
         friendship=build_friendship_response(db, friendship, source_pet.id),
     )
 
@@ -164,7 +165,7 @@ def accept_friendship(
     current_user=Depends(get_current_user),
 ) -> FriendshipActionResponse:
     source_pet = get_owned_pet_or_404(db, pet_id, current_user.id)
-    get_pet_or_404(db, friend_id)
+    friend_pet = get_pet_or_404(db, friend_id)
     friendship = get_friendship_between(db, source_pet.id, friend_id)
 
     if friendship is None:
@@ -192,7 +193,7 @@ def accept_friendship(
         ) from error
 
     return FriendshipActionResponse(
-        message="好友请求已接受。",
+        message=f"已接受{friend_pet.pet_name}的好友请求，现在可以直接聊天。",
         friendship=build_friendship_response(db, friendship, source_pet.id),
     )
 
@@ -208,7 +209,7 @@ def reject_friendship(
     current_user=Depends(get_current_user),
 ) -> FriendshipActionResponse:
     source_pet = get_owned_pet_or_404(db, pet_id, current_user.id)
-    get_pet_or_404(db, friend_id)
+    friend_pet = get_pet_or_404(db, friend_id)
     friendship = get_friendship_between(db, source_pet.id, friend_id)
 
     if friendship is None:
@@ -235,7 +236,7 @@ def reject_friendship(
         ) from error
 
     return FriendshipActionResponse(
-        message="好友请求已拒绝。",
+        message=f"已拒绝{friend_pet.pet_name}的好友请求，当前不能直接聊天。",
         friendship=build_friendship_response(db, friendship, source_pet.id),
     )
 
@@ -342,7 +343,7 @@ def send_social_message(
         ) from error
 
     return SocialSendResponse(
-        message="站内社交消息发送成功。",
+        message=f"已向{target_pet.pet_name}发送消息，并收到对方回复。",
         task=build_pet_task_response(task),
         sentMessage=build_social_message_response(sent_message),
         replyMessage=build_social_message_response(reply_message),
@@ -395,7 +396,7 @@ def run_social_round(
         ) from error
 
     return SocialRoundResponse(
-        message="站内社交回合已完成。",
+        message=build_social_round_result_message(target_pet, task_type),
         task=build_pet_task_response(task),
         sentMessage=build_social_message_response(sent_message),
         replyMessage=build_social_message_response(reply_message),

@@ -258,7 +258,7 @@ def ensure_friendship_can_chat(friendship: PetFriendship | None) -> None:
     if friendship is None or friendship.status != "accepted":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="当前只有已成为好友的宠物才能直接聊天。",
+            detail="当前只能和已接受好友关系的宠物直接聊天，请先完成好友请求处理。",
         )
 
 
@@ -271,19 +271,19 @@ def ensure_friendship_request_allowed(
     if friendship.status == "accepted":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="这两只宠物已经是好友了。",
+            detail="这两只宠物已经是好友了，可以直接进入聊天。",
         )
 
     if friendship.status == "pending" and friendship.initiated_by == current_pet_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="好友请求已经发出，等待对方处理。",
+            detail="好友请求已经发出，当前只能等待对方处理。",
         )
 
     if friendship.status == "pending" and friendship.initiated_by != current_pet_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="对方已经发来好友请求，请先去接受或拒绝。",
+            detail="对方已经先发来好友请求，请先接受或拒绝。",
         )
 
 
@@ -463,7 +463,7 @@ def choose_social_round_target(db: Session, source_pet: Pet) -> tuple[Pet, str]:
 
     raise HTTPException(
         status_code=status.HTTP_409_CONFLICT,
-        detail="当前没有可发起的新社交对象，请先处理已有好友请求。",
+        detail="当前没有可继续推进的新社交对象，请先处理待接收请求，或等待对方回应。",
     )
 
 
@@ -499,3 +499,9 @@ def get_social_tasks_for_pet(db: Session, pet_id: int) -> list[PetTask]:
         .order_by(PetTask.created_at.desc(), PetTask.id.desc())
         .all()
     )
+
+
+def build_social_round_result_message(target_pet: Pet, task_type: str) -> str:
+    if task_type == "chat":
+        return f"已和好友{target_pet.pet_name}完成一轮互动。"
+    return f"已向{target_pet.pet_name}发起一轮破冰招呼，关系等待对方处理。"

@@ -6,6 +6,16 @@ import type {
   SocialConversation,
   SocialTaskHistoryItem,
 } from "./social";
+import {
+  buildSocialCandidateSections,
+  getFriendshipStatusLabel,
+  getSocialCandidateActionHint,
+  getSocialCandidateStatusLabel,
+  getSocialConversationHint,
+  getSocialRequestButtonLabel,
+  getSocialRoundActionDescription,
+  getTaskTypeLabel,
+} from "./social";
 
 type SocialTargetsPanelProps = {
   candidates: SocialCandidate[];
@@ -46,34 +56,6 @@ function SectionEmptyState({ message }: { message: string }) {
   );
 }
 
-function getCandidateStatusLabel(candidate: SocialCandidate) {
-  if (candidate.friendshipStatus === "accepted") return "已是好友";
-  if (
-    candidate.friendshipStatus === "pending" &&
-    candidate.direction === "incoming"
-  ) {
-    return "待你处理";
-  }
-  if (candidate.friendshipStatus === "pending") return "已发请求";
-  if (candidate.friendshipStatus === "rejected") return "可重新发起";
-  return "未建立关系";
-}
-
-function getTaskTypeLabel(taskType: string) {
-  if (taskType === "chat") return "直接聊天";
-  if (taskType === "greet") return "主动打招呼";
-  if (taskType === "befriend") return "好友请求";
-  return taskType;
-}
-
-function getFriendshipStatusLabel(friendship: Friendship) {
-  if (friendship.status === "accepted") return "已成为好友";
-  if (friendship.direction === "incoming") return "等待你处理";
-  if (friendship.status === "pending") return "等待对方处理";
-  if (friendship.status === "rejected") return "已拒绝";
-  return friendship.status;
-}
-
 export function SocialTargetsPanel({
   candidates,
   selectedTargetId,
@@ -85,6 +67,8 @@ export function SocialTargetsPanel({
   onAcceptFriendship,
   onRejectFriendship,
 }: SocialTargetsPanelProps) {
+  const candidateSections = buildSocialCandidateSections(candidates);
+
   return (
     <section className="rounded-[28px] border border-orange-100 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 shadow-sm">
       <div className="flex items-start justify-between gap-4">
@@ -92,6 +76,9 @@ export function SocialTargetsPanel({
           <h2 className="text-2xl font-semibold text-gray-900">候选对象</h2>
           <p className="mt-2 text-sm leading-6 text-gray-600">
             这里只负责选择社交对象、发起好友请求，以及执行一轮站内社交。
+          </p>
+          <p className="mt-2 text-sm leading-6 text-amber-800">
+            {getSocialRoundActionDescription(candidates)}
           </p>
         </div>
         <button
@@ -111,77 +98,93 @@ export function SocialTargetsPanel({
       ) : null}
 
       <div className="mt-6 space-y-3">
-        {candidates.length === 0 ? (
+        {candidateSections.length === 0 ? (
           <SectionEmptyState message="当前还没有可互动的其他宠物。" />
         ) : null}
 
-        {candidates.map((candidate) => (
-          <div
-            key={candidate.pet.id}
-            className={`rounded-2xl border p-4 ${
-              selectedTargetId === candidate.pet.id
-                ? "border-amber-300 bg-white"
-                : "border-orange-100 bg-white/80"
-            }`}
-          >
-            <button
-              type="button"
-              onClick={() => onSelectTarget(candidate.pet.id)}
-              className="w-full text-left"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-lg font-semibold text-gray-900">
-                    {candidate.pet.petName}
-                  </p>
-                  <p className="mt-1 text-sm text-gray-500">
-                    {candidate.pet.species} · {candidate.pet.personality}
-                  </p>
-                </div>
-                <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600">
-                  {getCandidateStatusLabel(candidate)}
-                </span>
-              </div>
-            </button>
+        {candidateSections.map((section) => (
+          <div key={section.id} className="space-y-3">
+            <div className="px-1">
+              <h3 className="text-sm font-semibold text-gray-900">
+                {section.title}
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                {section.description}
+              </p>
+            </div>
 
-            <p className="mt-3 text-sm text-gray-600">
-              {candidate.pet.specialTraits}
-            </p>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              {candidate.canRequest ? (
+            {section.candidates.map((candidate) => (
+              <div
+                key={candidate.pet.id}
+                className={`rounded-2xl border p-4 ${
+                  selectedTargetId === candidate.pet.id
+                    ? "border-amber-300 bg-white"
+                    : "border-orange-100 bg-white/80"
+                }`}
+              >
                 <button
                   type="button"
-                  onClick={() => onRequestFriendship(candidate.pet.id)}
-                  disabled={isActing}
-                  className="rounded-lg bg-amber-100 px-4 py-2 text-sm font-medium text-amber-800 disabled:opacity-60"
+                  onClick={() => onSelectTarget(candidate.pet.id)}
+                  className="w-full text-left"
                 >
-                  发好友请求
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-lg font-semibold text-gray-900">
+                        {candidate.pet.petName}
+                      </p>
+                      <p className="mt-1 text-sm text-gray-500">
+                        {candidate.pet.species} · {candidate.pet.personality}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600">
+                      {getSocialCandidateStatusLabel(candidate)}
+                    </span>
+                  </div>
                 </button>
-              ) : null}
 
-              {candidate.friendshipStatus === "pending" &&
-              candidate.direction === "incoming" ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => onAcceptFriendship(candidate.pet.id)}
-                    disabled={isActing}
-                    className="rounded-lg bg-emerald-100 px-4 py-2 text-sm font-medium text-emerald-800 disabled:opacity-60"
-                  >
-                    接受
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onRejectFriendship(candidate.pet.id)}
-                    disabled={isActing}
-                    className="rounded-lg bg-rose-100 px-4 py-2 text-sm font-medium text-rose-800 disabled:opacity-60"
-                  >
-                    拒绝
-                  </button>
-                </>
-              ) : null}
-            </div>
+                <p className="mt-3 text-sm text-gray-600">
+                  {candidate.pet.specialTraits}
+                </p>
+                <p className="mt-2 text-sm text-gray-500">
+                  {getSocialCandidateActionHint(candidate)}
+                </p>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {candidate.canRequest ? (
+                    <button
+                      type="button"
+                      onClick={() => onRequestFriendship(candidate.pet.id)}
+                      disabled={isActing}
+                      className="rounded-lg bg-amber-100 px-4 py-2 text-sm font-medium text-amber-800 disabled:opacity-60"
+                    >
+                      {getSocialRequestButtonLabel(candidate)}
+                    </button>
+                  ) : null}
+
+                  {candidate.friendshipStatus === "pending" &&
+                  candidate.direction === "incoming" ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onAcceptFriendship(candidate.pet.id)}
+                        disabled={isActing}
+                        className="rounded-lg bg-emerald-100 px-4 py-2 text-sm font-medium text-emerald-800 disabled:opacity-60"
+                      >
+                        接受请求
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onRejectFriendship(candidate.pet.id)}
+                        disabled={isActing}
+                        className="rounded-lg bg-rose-100 px-4 py-2 text-sm font-medium text-rose-800 disabled:opacity-60"
+                      >
+                        拒绝请求
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            ))}
           </div>
         ))}
       </div>
@@ -263,18 +266,12 @@ export function SocialConversationPanel({
               </form>
             ) : (
               <div className="mt-4 rounded-xl border border-dashed border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
-                当前还不能直接聊天。先处理好友关系，或执行一轮社交让关系继续推进。
+                {getSocialConversationHint(selectedCandidate)}
               </div>
             )}
           </>
         ) : (
-          <SectionEmptyState
-            message={
-              selectedCandidate
-                ? "这两只宠物还没有形成对话记录，可以先发好友请求或执行一轮社交。"
-                : "先从左侧选择一个目标。"
-            }
-          />
+          <SectionEmptyState message={getSocialConversationHint(selectedCandidate)} />
         )}
       </div>
     </section>

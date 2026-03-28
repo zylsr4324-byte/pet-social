@@ -34,6 +34,7 @@ import {
   isSocialMessageListResponse,
   isSocialSendResponse,
   isSocialTaskListResponse,
+  sortSocialCandidates,
 } from "../../lib/social";
 
 const LOAD_FAILURE_MESSAGE = "加载站内社交数据失败，请稍后再试。";
@@ -166,19 +167,19 @@ export default function SocialPage() {
       throw new Error("后端返回的社交数据格式不正确。");
     }
 
+    const sortedCandidates = sortSocialCandidates(candidatesData.candidates);
+
     setPetId(petData.pet.id);
     setPetName(petData.pet.petName);
-    setCandidates(candidatesData.candidates);
+    setCandidates(sortedCandidates);
     setFriendships(friendsData.friends);
     setTasks(tasksData.tasks);
 
     const nextTargetId =
       preferredTargetId &&
-      candidatesData.candidates.some((item) => item.pet.id === preferredTargetId)
+      sortedCandidates.some((item) => item.pet.id === preferredTargetId)
         ? preferredTargetId
-        : candidatesData.candidates.find((item) => item.canChat)?.pet.id ??
-          candidatesData.candidates[0]?.pet.id ??
-          null;
+        : sortedCandidates[0]?.pet.id ?? null;
 
     setSelectedTargetId(nextTargetId);
     setConversation(
