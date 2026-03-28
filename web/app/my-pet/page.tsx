@@ -2,513 +2,43 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-
-type PetProfile = {
-  petName: string;
-  species: string;
-  color: string;
-  size: string;
-  personality: string;
-  specialTraits: string;
-};
-
-type ApiPet = PetProfile & {
-  id: number;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type PetApiResponse = {
-  message: string;
-  pet: ApiPet;
-};
-
-type PetListResponse = {
-  message: string;
-  pets: ApiPet[];
-};
-
-type ChatMessage = {
-  id: number;
-  pet_id: number;
-  role: "user" | "pet";
-  content: string;
-  created_at: string;
-};
-
-type MessageListResponse = {
-  messages: ChatMessage[];
-};
-
-const PET_ID_STORAGE_KEY = "pet-agent-social:pet-id";
-const AUTH_TOKEN_STORAGE_KEY = "pet-agent-social:auth-token";
-const AUTH_USER_EMAIL_STORAGE_KEY = "pet-agent-social:auth-user-email";
-const API_BASE_URL = "http://localhost:8000";
-const RESTORE_PET_FAILURE_MESSAGE = "读取宠物列表失败了，请稍后再试。";
-const LOGIN_REQUIRED_MESSAGE = "请先登录后再使用这个页面。";
-const MISSING_PET_MESSAGE = "之前保存的宠物资料找不到了，请重新创建一次。";
-const EMPTY_PET: PetProfile = {
-  petName: "",
-  species: "",
-  color: "",
-  size: "",
-  personality: "",
-  specialTraits: "",
-};
-
-const isPetProfile = (value: unknown): value is PetProfile => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const pet = value as Record<string, unknown>;
-
-  return (
-    typeof pet.petName === "string" &&
-    typeof pet.species === "string" &&
-    typeof pet.color === "string" &&
-    typeof pet.size === "string" &&
-    typeof pet.personality === "string" &&
-    typeof pet.specialTraits === "string"
-  );
-};
-
-const isPetApiResponse = (value: unknown): value is PetApiResponse => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const response = value as Record<string, unknown>;
-
-  return (
-    typeof response.message === "string" &&
-    isPetProfile(response.pet) &&
-    typeof (response.pet as { id?: unknown }).id === "number"
-  );
-};
-
-const isPetListResponse = (value: unknown): value is PetListResponse => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const response = value as Record<string, unknown>;
-
-  return (
-    typeof response.message === "string" &&
-    Array.isArray(response.pets) &&
-    response.pets.every(isPetProfile) &&
-    response.pets.every((pet) => typeof (pet as { id?: unknown }).id === "number")
-  );
-};
-
-const isChatMessage = (value: unknown): value is ChatMessage => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const message = value as Record<string, unknown>;
-
-  return (
-    typeof message.id === "number" &&
-    typeof message.pet_id === "number" &&
-    (message.role === "user" || message.role === "pet") &&
-    typeof message.content === "string" &&
-    typeof message.created_at === "string"
-  );
-};
-
-const isMessageListResponse = (value: unknown): value is MessageListResponse => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const response = value as Record<string, unknown>;
-
-  return Array.isArray(response.messages) && response.messages.every(isChatMessage);
-};
-
-const mapApiPetToProfile = (pet: ApiPet): PetProfile => ({
-  petName: pet.petName,
-  species: pet.species,
-  color: pet.color,
-  size: pet.size,
-  personality: pet.personality,
-  specialTraits: pet.specialTraits,
-});
-
-const clearStoredPetId = () => {
-  window.localStorage.removeItem(PET_ID_STORAGE_KEY);
-
-  // 某些调试场景下，重复执行一次清理更稳妥，避免页面继续带着失效 id 进入下一次请求。
-  if (window.localStorage.getItem(PET_ID_STORAGE_KEY) !== null) {
-    window.localStorage.removeItem(PET_ID_STORAGE_KEY);
-  }
-};
-
-const readStoredPetId = () => {
-  const storedPetId = window.localStorage.getItem(PET_ID_STORAGE_KEY);
-
-  if (!storedPetId) {
-    return null;
-  }
-
-  const parsedPetId = Number(storedPetId);
-
-  if (Number.isInteger(parsedPetId) && parsedPetId > 0) {
-    return parsedPetId;
-  }
-
-  clearStoredPetId();
-  return null;
-};
-
-const readStoredAuthToken = () => {
-  const storedToken = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
-
-  return storedToken?.trim() ? storedToken : null;
-};
-
-const clearStoredAuth = () => {
-  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-  window.localStorage.removeItem(AUTH_USER_EMAIL_STORAGE_KEY);
-};
-
-const buildAuthHeaders = (token: string) => ({
-  Authorization: `Bearer ${token}`,
-});
-
-const getResponseErrorMessage = async (
-  response: Response,
-  fallbackMessage: string
-) => {
-  try {
-    const data = await response.json();
-
-    if (
-      data &&
-      typeof data === "object" &&
-      "detail" in data &&
-      typeof data.detail === "string"
-    ) {
-      return data.detail;
-    }
-
-    if (
-      data &&
-      typeof data === "object" &&
-      "message" in data &&
-      typeof data.message === "string"
-    ) {
-      return data.message;
-    }
-  } catch {
-    return fallbackMessage;
-  }
-
-  return fallbackMessage;
-};
-
-const fetchLatestPetForCurrentUser = async (token: string) => {
-  const response = await fetch(`${API_BASE_URL}/pets`, {
-    cache: "no-store",
-    headers: buildAuthHeaders(token),
-  });
-
-  if (response.status === 401) {
-    return {
-      pet: null as ApiPet | null,
-      unauthorized: true,
-      errorMessage: null as string | null,
-    };
-  }
-
-  if (!response.ok) {
-    return {
-      pet: null as ApiPet | null,
-      unauthorized: false,
-      errorMessage: await getResponseErrorMessage(
-        response,
-        RESTORE_PET_FAILURE_MESSAGE
-      ),
-    };
-  }
-
-  const data: unknown = await response.json();
-
-  if (!isPetListResponse(data)) {
-    return {
-      pet: null as ApiPet | null,
-      unauthorized: false,
-      errorMessage: RESTORE_PET_FAILURE_MESSAGE,
-    };
-  }
-
-  return {
-    pet: data.pets[0] ?? null,
-    unauthorized: false,
-    errorMessage: null as string | null,
-  };
-};
-
-const getSpeciesVisual = (species: string) => {
-  switch (species) {
-    case "猫":
-      return { icon: "🐱", label: "猫系轮廓", note: "轻盈又灵巧" };
-    case "狗":
-      return { icon: "🐶", label: "狗系轮廓", note: "元气又亲近" };
-    case "兔子":
-      return { icon: "🐰", label: "兔系轮廓", note: "柔软又安静" };
-    case "狐狸":
-      return { icon: "🦊", label: "狐系轮廓", note: "机灵又漂亮" };
-    case "其他":
-      return { icon: "🐾", label: "其他外貌", note: "等你补充更多细节" };
-    default:
-      return {
-        icon: "✨",
-        label: "外貌占位",
-        note: "等你选择品种后会更具体",
-      };
-  }
-};
-
-const getColorDisplay = (color: string) => {
-  const normalizedColor = color.trim();
-
-  if (!normalizedColor) {
-    return {
-      label: "待补充颜色",
-      helper: "颜色展示占位",
-      swatchClass: "bg-gradient-to-br from-stone-200 via-white to-stone-300",
-    };
-  }
-
-  const colorMappings = [
-    {
-      keywords: ["橘白", "白橘"],
-      helper: "橘白配色",
-      swatchClass: "bg-gradient-to-br from-orange-300 via-white to-orange-100",
-    },
-    {
-      keywords: ["黑白", "白黑", "奶牛"],
-      helper: "黑白配色",
-      swatchClass: "bg-gradient-to-br from-slate-900 via-white to-slate-300",
-    },
-    {
-      keywords: ["灰白", "白灰"],
-      helper: "灰白配色",
-      swatchClass: "bg-gradient-to-br from-slate-400 via-white to-slate-200",
-    },
-    {
-      keywords: ["橘", "姜黄"],
-      helper: "暖橘色调",
-      swatchClass: "bg-orange-300",
-    },
-    {
-      keywords: ["奶油", "米白", "米色"],
-      helper: "奶油色调",
-      swatchClass: "bg-amber-100",
-    },
-    {
-      keywords: ["白"],
-      helper: "浅色毛感",
-      swatchClass: "bg-white",
-    },
-    {
-      keywords: ["黑"],
-      helper: "深色毛感",
-      swatchClass: "bg-slate-900",
-    },
-    {
-      keywords: ["灰", "银"],
-      helper: "灰色毛感",
-      swatchClass: "bg-slate-400",
-    },
-    {
-      keywords: ["棕", "咖啡"],
-      helper: "棕色毛感",
-      swatchClass: "bg-amber-700",
-    },
-    {
-      keywords: ["金", "黄"],
-      helper: "金黄色调",
-      swatchClass: "bg-amber-300",
-    },
-    {
-      keywords: ["蓝"],
-      helper: "蓝色调",
-      swatchClass: "bg-sky-300",
-    },
-    {
-      keywords: ["粉"],
-      helper: "粉色调",
-      swatchClass: "bg-pink-300",
-    },
-    {
-      keywords: ["绿"],
-      helper: "绿色调",
-      swatchClass: "bg-emerald-300",
-    },
-  ];
-
-  const matchedColor = colorMappings.find(({ keywords }) =>
-    keywords.some((keyword) => normalizedColor.includes(keyword))
-  );
-
-  if (matchedColor) {
-    return {
-      label: normalizedColor,
-      helper: matchedColor.helper,
-      swatchClass: matchedColor.swatchClass,
-    };
-  }
-
-  return {
-    label: normalizedColor,
-    helper: "自定义颜色占位",
-    swatchClass: "bg-gradient-to-br from-stone-200 via-white to-stone-300",
-  };
-};
-
-const getSizeDisplay = (size: string) => {
-  switch (size) {
-    case "小型":
-      return {
-        label: "小型体型",
-        className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-      };
-    case "中型":
-      return {
-        label: "中型体型",
-        className: "border-sky-200 bg-sky-50 text-sky-700",
-      };
-    case "大型":
-      return {
-        label: "大型体型",
-        className: "border-rose-200 bg-rose-50 text-rose-700",
-      };
-    default:
-      return {
-        label: "体型待定",
-        className: "border-gray-200 bg-white/80 text-gray-500",
-      };
-  }
-};
-
-const summarizeText = (value: string, maxLength: number) => {
-  if (value.length <= maxLength) {
-    return value;
-  }
-
-  return `${value.slice(0, maxLength)}...`;
-};
-
-const getAppearanceSummary = (pet: PetProfile) => {
-  if (!pet.species && !pet.color && !pet.size) {
-    return "现在先用一个温和的外貌占位来代表你的宠物。等你补充品种、颜色和体型后，这里会越来越像一张真正的形象卡。";
-  }
-
-  const appearanceCore = [
-    pet.color ? `${pet.color}的` : "",
-    pet.size || "",
-    pet.species || "宠物",
-  ]
-    .filter(Boolean)
-    .join("");
-
-  if (pet.specialTraits) {
-    return `它看起来像一只${appearanceCore}，最容易让人记住的地方是${summarizeText(
-      pet.specialTraits,
-      18
-    )}。`;
-  }
-
-  return `它看起来像一只${appearanceCore}，整体外貌轮廓已经有一点清晰了，继续补充细节会更生动。`;
-};
-
-const getTemperamentTag = (personality: string) => {
-  if (personality.includes("高冷")) {
-    return {
-      label: "高冷系",
-      note: "慢热但自带距离感",
-      className: "border-slate-200 bg-slate-50 text-slate-700",
-    };
-  }
-
-  if (personality.includes("活泼")) {
-    return {
-      label: "活泼系",
-      note: "出场就很有存在感",
-      className: "border-amber-200 bg-amber-50 text-amber-700",
-    };
-  }
-
-  if (personality.includes("黏人") || personality.includes("撒娇")) {
-    return {
-      label: "黏人系",
-      note: "很容易靠近，也很会表达喜欢",
-      className: "border-rose-200 bg-rose-50 text-rose-700",
-    };
-  }
-
-  if (personality.includes("好奇")) {
-    return {
-      label: "好奇系",
-      note: "对新朋友和新环境都很感兴趣",
-      className: "border-sky-200 bg-sky-50 text-sky-700",
-    };
-  }
-
-  if (personality.includes("傲娇")) {
-    return {
-      label: "傲娇系",
-      note: "嘴上不说，态度却很有戏",
-      className: "border-orange-200 bg-orange-50 text-orange-700",
-    };
-  }
-
-  return {
-    label: "性格待探索",
-    note: "等你补充更多性格线索",
-    className: "border-gray-200 bg-white text-gray-500",
-  };
-};
-
-const getSocialStatus = (pet: PetProfile) => {
-  const hasAnyInfo = Boolean(
-    pet.petName ||
-      pet.species ||
-      pet.color ||
-      pet.size ||
-      pet.personality ||
-      pet.specialTraits
-  );
-
-  if (!hasAnyInfo) {
-    return {
-      label: "新朋友",
-      note: "刚刚来到这里，准备慢慢认识大家",
-      className: "border-sky-200 bg-sky-50 text-sky-700",
-    };
-  }
-
-  if (pet.petName && pet.species) {
-    return {
-      label: "准备社交",
-      note: "基本身份已经清晰，可以开始结识其他宠物了",
-      className: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    };
-  }
-
-  return {
-    label: "熟悉中",
-    note: "资料正在慢慢补全，先从认识它开始",
-    className: "border-amber-200 bg-amber-50 text-amber-700",
-  };
-};
+import {
+  buildAuthHeaders,
+  clearStoredAuth,
+  readStoredAuthToken,
+} from "../../lib/auth";
+import { type ChatMessage, isMessageListResponse } from "../../lib/chat";
+import {
+  API_BASE_URL,
+  LOGIN_REQUIRED_MESSAGE,
+  MISSING_PET_MESSAGE,
+  RESTORE_PET_FAILURE_MESSAGE,
+} from "../../lib/constants";
+import {
+  EMPTY_PET,
+  clearStoredPetId,
+  getResponseErrorMessage,
+  isPetApiResponse,
+  mapApiPetToProfile,
+  readStoredPetId,
+  recoverLatestPetForCurrentUser,
+  writeStoredPetId,
+  type PetProfile,
+} from "../../lib/pet";
+import {
+  getAppearanceSummary,
+  getColorDisplay,
+  getSizeDisplay,
+  getSocialStatus,
+  getSpeciesVisual,
+  getTemperamentTag,
+  summarizeText,
+} from "../../lib/pet-display";
+import { PetSwitcher } from "../../lib/PetSwitcher";
 
 export default function MyPetPage() {
   const [pet, setPet] = useState<PetProfile | null>(null);
+  const [petId, setPetId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -544,7 +74,10 @@ export default function MyPetPage() {
         }
 
         const restoreLatestPet = async () => {
-          const result = await fetchLatestPetForCurrentUser(storedAuthToken);
+          const result = await recoverLatestPetForCurrentUser(
+            storedAuthToken,
+            RESTORE_PET_FAILURE_MESSAGE
+          );
 
           if (result.unauthorized) {
             clearStoredAuth();
@@ -581,7 +114,7 @@ export default function MyPetPage() {
             return { pet: null as ApiPet | null, blocked: false };
           }
 
-          window.localStorage.setItem(PET_ID_STORAGE_KEY, String(result.pet.id));
+          writeStoredPetId(result.pet.id);
           return { pet: result.pet, blocked: false };
         };
 
@@ -761,6 +294,7 @@ export default function MyPetPage() {
 
         if (isMounted) {
           setPet(mapApiPetToProfile(petData.pet));
+          setPetId(petData.pet.id);
           setMessages(messagesData.messages);
           setStatusMessage(null);
           setRecentChatStatus(null);
@@ -788,6 +322,10 @@ export default function MyPetPage() {
       isMounted = false;
     };
   }, []);
+
+  const handlePetSwitch = (newPetId: number) => {
+    window.location.reload();
+  };
 
   const petCardName = pet?.petName || "未命名宠物";
   const petCardSpecies = pet?.species || "待选择品种";
@@ -834,10 +372,21 @@ export default function MyPetPage() {
         </div>
 
         <div className="mb-8">
-          <h1 className="text-3xl font-bold sm:text-4xl">我的宠物</h1>
-          <p className="mt-3 text-base leading-7 text-gray-600">
-            这里会展示你已经保存下来的宠物资料。
-          </p>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold sm:text-4xl">我的宠物</h1>
+              <p className="mt-3 text-base leading-7 text-gray-600">
+                这里会展示你已经保存下来的宠物资料。
+              </p>
+            </div>
+            {authToken && petId && (
+              <PetSwitcher
+                currentPetId={petId}
+                authToken={authToken}
+                onPetSwitch={handlePetSwitch}
+              />
+            )}
+          </div>
         </div>
 
         {!isLoaded ? (

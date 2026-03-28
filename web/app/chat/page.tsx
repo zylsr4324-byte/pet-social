@@ -2,277 +2,36 @@
 
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import {
+  buildAuthHeaders,
+  clearStoredAuth,
+  readStoredAuthToken,
+} from "../../lib/auth";
+import {
+  type ChatMessage,
+  isChatResponse,
+  isDeleteMessagesResponse,
+  isMessageListResponse,
+} from "../../lib/chat";
+import {
+  API_BASE_URL,
+  LOGIN_REQUIRED_MESSAGE,
+  MISSING_PET_MESSAGE,
+  RESTORE_PET_FAILURE_MESSAGE,
+} from "../../lib/constants";
+import {
+  clearStoredPetId,
+  getResponseErrorMessage,
+  isPetApiResponse,
+  readStoredPetId,
+  recoverLatestPetForCurrentUser,
+  writeStoredPetId,
+} from "../../lib/pet";
+import { PetSwitcher } from "../../lib/PetSwitcher";
 
-type PetProfile = {
-  petName: string;
-  species: string;
-  color: string;
-  size: string;
-  personality: string;
-  specialTraits: string;
-};
-
-type ApiPet = PetProfile & {
-  id: number;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type PetApiResponse = {
-  message: string;
-  pet: ApiPet;
-};
-
-type PetListResponse = {
-  message: string;
-  pets: ApiPet[];
-};
-
-type ChatMessage = {
-  id: number;
-  pet_id: number;
-  role: "user" | "pet";
-  content: string;
-  created_at: string;
-};
-
-type MessageListResponse = {
-  messages: ChatMessage[];
-};
-
-type ChatResponse = {
-  user_message: ChatMessage;
-  pet_message: ChatMessage;
-};
-
-type DeleteMessagesResponse = {
-  message: string;
-};
-
-const PET_ID_STORAGE_KEY = "pet-agent-social:pet-id";
-const AUTH_TOKEN_STORAGE_KEY = "pet-agent-social:auth-token";
-const AUTH_USER_EMAIL_STORAGE_KEY = "pet-agent-social:auth-user-email";
-const API_BASE_URL = "http://localhost:8000";
-const RESTORE_PET_FAILURE_MESSAGE = "读取宠物列表失败了，请稍后再试。";
-const MISSING_PET_MESSAGE = "之前保存的宠物资料找不到了，请重新创建一次。";
 const SEND_FAILURE_MESSAGE = "发送失败了，请稍后再试。";
 const CLEAR_MESSAGES_FAILURE_MESSAGE = "清空聊天记录失败了，请稍后再试。";
 const SEND_TIMEOUT_MS = 8000;
-const LOGIN_REQUIRED_MESSAGE = "请先登录后再使用这个页面。";
-
-const isPetProfile = (value: unknown): value is PetProfile => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const pet = value as Record<string, unknown>;
-
-  return (
-    typeof pet.petName === "string" &&
-    typeof pet.species === "string" &&
-    typeof pet.color === "string" &&
-    typeof pet.size === "string" &&
-    typeof pet.personality === "string" &&
-    typeof pet.specialTraits === "string"
-  );
-};
-
-const isPetApiResponse = (value: unknown): value is PetApiResponse => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const response = value as Record<string, unknown>;
-
-  return (
-    typeof response.message === "string" &&
-    isPetProfile(response.pet) &&
-    typeof (response.pet as { id?: unknown }).id === "number"
-  );
-};
-
-const isPetListResponse = (value: unknown): value is PetListResponse => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const response = value as Record<string, unknown>;
-
-  return (
-    typeof response.message === "string" &&
-    Array.isArray(response.pets) &&
-    response.pets.every(isPetProfile) &&
-    response.pets.every((pet) => typeof (pet as { id?: unknown }).id === "number")
-  );
-};
-
-const isChatMessage = (value: unknown): value is ChatMessage => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const message = value as Record<string, unknown>;
-
-  return (
-    typeof message.id === "number" &&
-    typeof message.pet_id === "number" &&
-    (message.role === "user" || message.role === "pet") &&
-    typeof message.content === "string" &&
-    typeof message.created_at === "string"
-  );
-};
-
-const isMessageListResponse = (value: unknown): value is MessageListResponse => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const response = value as Record<string, unknown>;
-
-  return Array.isArray(response.messages) && response.messages.every(isChatMessage);
-};
-
-const isChatResponse = (value: unknown): value is ChatResponse => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const response = value as Record<string, unknown>;
-
-  return (
-    isChatMessage(response.user_message) && isChatMessage(response.pet_message)
-  );
-};
-
-const isDeleteMessagesResponse = (
-  value: unknown
-): value is DeleteMessagesResponse => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const response = value as Record<string, unknown>;
-
-  return typeof response.message === "string";
-};
-
-const clearStoredPetId = () => {
-  window.localStorage.removeItem(PET_ID_STORAGE_KEY);
-};
-
-const readStoredPetId = () => {
-  const storedPetId = window.localStorage.getItem(PET_ID_STORAGE_KEY);
-
-  if (!storedPetId) {
-    return null;
-  }
-
-  const parsedPetId = Number(storedPetId);
-
-  if (Number.isInteger(parsedPetId) && parsedPetId > 0) {
-    return parsedPetId;
-  }
-
-  clearStoredPetId();
-  return null;
-};
-
-const readStoredAuthToken = () => {
-  const storedToken = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
-
-  return storedToken?.trim() ? storedToken : null;
-};
-
-const clearStoredAuth = () => {
-  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-  window.localStorage.removeItem(AUTH_USER_EMAIL_STORAGE_KEY);
-};
-
-const buildAuthHeaders = (token: string, includeJson = false) => {
-  const headers: HeadersInit = {
-    Authorization: `Bearer ${token}`,
-  };
-
-  if (includeJson) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  return headers;
-};
-
-const getResponseErrorMessage = async (
-  response: Response,
-  fallbackMessage: string
-) => {
-  try {
-    const data = await response.json();
-
-    if (
-      data &&
-      typeof data === "object" &&
-      "detail" in data &&
-      typeof data.detail === "string"
-    ) {
-      return data.detail;
-    }
-
-    if (
-      data &&
-      typeof data === "object" &&
-      "message" in data &&
-      typeof data.message === "string"
-    ) {
-      return data.message;
-    }
-  } catch {
-    return fallbackMessage;
-  }
-
-  return fallbackMessage;
-};
-
-const fetchLatestPetForCurrentUser = async (token: string) => {
-  const response = await fetch(`${API_BASE_URL}/pets`, {
-    cache: "no-store",
-    headers: buildAuthHeaders(token),
-  });
-
-  if (response.status === 401) {
-    return {
-      pet: null as ApiPet | null,
-      unauthorized: true,
-      errorMessage: null as string | null,
-    };
-  }
-
-  if (!response.ok) {
-    return {
-      pet: null as ApiPet | null,
-      unauthorized: false,
-      errorMessage: await getResponseErrorMessage(
-        response,
-        RESTORE_PET_FAILURE_MESSAGE
-      ),
-    };
-  }
-
-  const data: unknown = await response.json();
-
-  if (!isPetListResponse(data)) {
-    return {
-      pet: null as ApiPet | null,
-      unauthorized: false,
-      errorMessage: RESTORE_PET_FAILURE_MESSAGE,
-    };
-  }
-
-  return {
-    pet: data.pets[0] ?? null,
-    unauthorized: false,
-    errorMessage: null as string | null,
-  };
-};
-
 export default function ChatPage() {
   const [petId, setPetId] = useState<number | null>(null);
   const [petName, setPetName] = useState("");
@@ -293,6 +52,10 @@ export default function ChatPage() {
     petId && authToken && !isLoadingChat && !isSending && !isClearingMessages
   );
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const handlePetSwitch = (newPetId: number) => {
+    window.location.reload();
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -320,7 +83,10 @@ export default function ChatPage() {
         }
 
         const restoreLatestPet = async () => {
-          const result = await fetchLatestPetForCurrentUser(storedAuthToken);
+          const result = await recoverLatestPetForCurrentUser(
+            storedAuthToken,
+            RESTORE_PET_FAILURE_MESSAGE
+          );
 
           if (result.unauthorized) {
             clearStoredAuth();
@@ -357,7 +123,7 @@ export default function ChatPage() {
             return { pet: null as ApiPet | null, blocked: false };
           }
 
-          window.localStorage.setItem(PET_ID_STORAGE_KEY, String(result.pet.id));
+          writeStoredPetId(result.pet.id);
           return { pet: result.pet, blocked: false };
         };
 
@@ -797,10 +563,21 @@ export default function ChatPage() {
         </div>
 
         <div className="mb-8">
-          <h1 className="text-3xl font-bold sm:text-4xl">和宠物聊天</h1>
-          <p className="mt-3 text-base leading-7 text-gray-600">
-            这次聊天记录会保存到后端。刷新页面后，你和宠物刚刚说过的话还会在这里。
-          </p>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold sm:text-4xl">和宠物聊天</h1>
+              <p className="mt-3 text-base leading-7 text-gray-600">
+                这次聊天记录会保存到后端。刷新页面后，你和宠物刚刚说过的话还会在这里。
+              </p>
+            </div>
+            {authToken && petId && (
+              <PetSwitcher
+                currentPetId={petId}
+                authToken={authToken}
+                onPetSwitch={handlePetSwitch}
+              />
+            )}
+          </div>
         </div>
 
         {isLoadingChat ? (
