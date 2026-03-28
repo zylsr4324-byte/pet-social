@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import {
   buildHomeSceneActionMessage,
+  getHomePetSpriteSpec,
   getHomeSceneBehavior,
   HOME_PET_INTERACTION_MENU_ITEMS,
   HOME_SCENE_OBJECTS,
@@ -74,6 +75,33 @@ runTest("HOME_SCENE_OBJECTS separates instant actions from target points", () =>
   assert.deepEqual(instantEntries, ["feed", "drink", "play"]);
   assert.deepEqual(targetEntries, ["bed"]);
   assert.equal(HOME_SCENE_OBJECTS.bed.badgeLabel, "休息目标");
+});
+
+runTest("home scene pet sprite changes by species", () => {
+  assert.deepEqual(getHomePetSpriteSpec("猫"), {
+    speciesLabel: "猫系轮廓",
+    face: "^.^",
+    bodyWidth: 36,
+    bodyHeight: 36,
+    earStyle: "pointed",
+    tailStyle: "short",
+  });
+  assert.deepEqual(getHomePetSpriteSpec("狗"), {
+    speciesLabel: "狗系轮廓",
+    face: "u.u",
+    bodyWidth: 42,
+    bodyHeight: 34,
+    earStyle: "floppy",
+    tailStyle: "curled",
+  });
+  assert.deepEqual(getHomePetSpriteSpec("兔子"), {
+    speciesLabel: "兔系轮廓",
+    face: "•ᴗ•",
+    bodyWidth: 32,
+    bodyHeight: 38,
+    earStyle: "long",
+    tailStyle: "cotton",
+  });
 });
 
 runTest("pet interaction menu keeps status view and chat entry separate", () => {

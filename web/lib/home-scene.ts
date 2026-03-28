@@ -20,6 +20,15 @@ export type HomeSceneBehavior = {
   summary: string;
 };
 
+export type HomePetSpriteSpec = {
+  speciesLabel: string;
+  face: string;
+  bodyWidth: number;
+  bodyHeight: number;
+  earStyle: "pointed" | "floppy" | "long";
+  tailStyle: "short" | "curled" | "cotton" | "bushy";
+};
+
 export type PetInteractionMenuAction = "status" | "chat";
 
 export type PetInteractionMenuItem = {
@@ -86,6 +95,56 @@ export const HOME_PET_INTERACTION_MENU_ITEMS: PetInteractionMenuItem[] = [
     description: "直接在家庭场景里展开聊天窗口，不再跳转到独立聊天页面。",
   },
 ];
+
+export function getHomePetSpriteSpec(species: string): HomePetSpriteSpec {
+  switch (species) {
+    case "猫":
+      return {
+        speciesLabel: "猫系轮廓",
+        face: "^.^",
+        bodyWidth: 36,
+        bodyHeight: 36,
+        earStyle: "pointed",
+        tailStyle: "short",
+      };
+    case "狗":
+      return {
+        speciesLabel: "狗系轮廓",
+        face: "u.u",
+        bodyWidth: 42,
+        bodyHeight: 34,
+        earStyle: "floppy",
+        tailStyle: "curled",
+      };
+    case "兔子":
+      return {
+        speciesLabel: "兔系轮廓",
+        face: "•ᴗ•",
+        bodyWidth: 32,
+        bodyHeight: 38,
+        earStyle: "long",
+        tailStyle: "cotton",
+      };
+    case "狐狸":
+      return {
+        speciesLabel: "狐系轮廓",
+        face: "^o^",
+        bodyWidth: 40,
+        bodyHeight: 34,
+        earStyle: "pointed",
+        tailStyle: "bushy",
+      };
+    default:
+      return {
+        speciesLabel: "通用轮廓",
+        face: "^.^",
+        bodyWidth: 36,
+        bodyHeight: 36,
+        earStyle: "pointed",
+        tailStyle: "short",
+      };
+  }
+}
 
 export function getHomeSceneBehavior(status: PetStatus | null): HomeSceneBehavior {
   if (!status) {

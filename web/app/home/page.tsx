@@ -804,6 +804,7 @@ export default function HomeScenePage() {
 
               <PetHomeScene
                 petName={pet.petName}
+                petSpecies={pet.species}
                 petStatus={status}
                 onAction={(action) => {
                   void handleSceneAction(action);

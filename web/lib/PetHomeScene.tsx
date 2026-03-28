@@ -5,6 +5,7 @@ import type { MutableRefObject } from "react";
 import type * as PhaserType from "phaser";
 
 import {
+  getHomePetSpriteSpec,
   getHomeSceneBehavior,
   HOME_SCENE_OBJECTS,
   type HomeSceneObjectAction,
@@ -16,6 +17,7 @@ export type SceneAction = "pet" | HomeSceneObjectAction;
 
 type PetHomeSceneProps = {
   petName: string;
+  petSpecies: string;
   petStatus: PetStatus | null;
   onAction: (action: SceneAction) => void;
 };
@@ -24,6 +26,7 @@ type SceneRefs = {
   statusRef: MutableRefObject<PetStatus | null>;
   actionRef: MutableRefObject<(action: SceneAction) => void>;
   nameRef: MutableRefObject<string>;
+  speciesRef: MutableRefObject<string>;
   apiRef: MutableRefObject<{ refresh: () => void } | null>;
 };
 
@@ -72,7 +75,7 @@ function createHomeScene(
   };
 
   let petContainer: PhaserType.GameObjects.Container | null = null;
-  let petBody: PhaserType.GameObjects.Arc | null = null;
+  let petTintParts: PhaserType.GameObjects.Shape[] = [];
   let moodText: PhaserType.GameObjects.Text | null = null;
   let behaviorText: PhaserType.GameObjects.Text | null = null;
   let petLabel: PhaserType.GameObjects.Text | null = null;
@@ -82,9 +85,9 @@ function createHomeScene(
     const status = refs.statusRef.current;
     const behavior = getHomeSceneBehavior(status);
 
-    if (petBody) {
-      petBody.setFillStyle(getPetTint(status));
-    }
+    petTintParts.forEach((part) => {
+      part.setFillStyle(getPetTint(status));
+    });
 
     if (petContainer && petLabel) {
       petLabel.setPosition(petContainer.x, petContainer.y - 42);
@@ -203,12 +206,40 @@ function createHomeScene(
   };
 
   const createPet = () => {
+    const spriteSpec = getHomePetSpriteSpec(refs.speciesRef.current);
     const startPoint = toWorld(7, 8);
     const shadow = scene.add.ellipse(0, 20, 34, 12, 0x7c5b2d, 0.18);
-    const body = scene.add.circle(0, 0, 18, getPetTint(refs.statusRef.current));
-    const leftEar = scene.add.triangle(-10, -16, 0, 0, 8, -16, 16, 0, 0xeab308);
-    const rightEar = scene.add.triangle(10, -16, 0, 0, 8, -16, 16, 0, 0xeab308);
-    const face = scene.add.text(0, -1, "^.^", {
+    const body = scene.add.ellipse(
+      0,
+      0,
+      spriteSpec.bodyWidth,
+      spriteSpec.bodyHeight,
+      getPetTint(refs.statusRef.current)
+    );
+
+    const leftEar =
+      spriteSpec.earStyle === "floppy"
+        ? scene.add.ellipse(-14, -10, 12, 22, 0x92400e)
+        : spriteSpec.earStyle === "long"
+          ? scene.add.ellipse(-10, -22, 10, 28, 0xf8fafc)
+          : scene.add.triangle(-10, -16, 0, 0, 8, -16, 16, 0, 0xeab308);
+    const rightEar =
+      spriteSpec.earStyle === "floppy"
+        ? scene.add.ellipse(14, -10, 12, 22, 0x92400e)
+        : spriteSpec.earStyle === "long"
+          ? scene.add.ellipse(10, -22, 10, 28, 0xf8fafc)
+          : scene.add.triangle(10, -16, 0, 0, 8, -16, 16, 0, 0xeab308);
+
+    const tail =
+      spriteSpec.tailStyle === "curled"
+        ? scene.add.ellipse(20, 4, 12, 24, 0x92400e)
+        : spriteSpec.tailStyle === "cotton"
+          ? scene.add.circle(18, 8, 7, 0xffffff)
+          : spriteSpec.tailStyle === "bushy"
+            ? scene.add.ellipse(22, 4, 16, 28, 0xf59e0b)
+            : scene.add.ellipse(18, 10, 10, 20, 0xeab308);
+
+    const face = scene.add.text(0, -1, spriteSpec.face, {
       color: "#1f2937",
       fontSize: "12px",
     });
@@ -216,6 +247,7 @@ function createHomeScene(
 
     petContainer = scene.add.container(startPoint.x, startPoint.y, [
       shadow,
+      tail,
       leftEar,
       rightEar,
       body,
@@ -229,7 +261,7 @@ function createHomeScene(
     );
     petContainer.on("pointerdown", () => refs.actionRef.current("pet"));
 
-    petBody = body;
+    petTintParts = [body];
     petLabel = scene.add.text(startPoint.x, startPoint.y - 42, refs.nameRef.current, {
       color: "#7c2d12",
       fontSize: "16px",
@@ -324,6 +356,7 @@ function createHomeScene(
 
 export function PetHomeScene({
   petName,
+  petSpecies,
   petStatus,
   onAction,
 }: PetHomeSceneProps) {
@@ -331,11 +364,13 @@ export function PetHomeScene({
   const latestStatusRef = useRef<PetStatus | null>(petStatus);
   const latestActionRef = useRef(onAction);
   const latestNameRef = useRef(petName);
+  const latestSpeciesRef = useRef(petSpecies);
   const sceneApiRef = useRef<{ refresh: () => void } | null>(null);
 
   latestStatusRef.current = petStatus;
   latestActionRef.current = onAction;
   latestNameRef.current = petName;
+  latestSpeciesRef.current = petSpecies;
 
   useEffect(() => {
     let destroyed = false;
@@ -353,6 +388,7 @@ export function PetHomeScene({
         statusRef: latestStatusRef,
         actionRef: latestActionRef,
         nameRef: latestNameRef,
+        speciesRef: latestSpeciesRef,
         apiRef: sceneApiRef,
       });
 
@@ -379,11 +415,11 @@ export function PetHomeScene({
         game.destroy(true);
       }
     };
-  }, []);
+  }, [petSpecies]);
 
   useEffect(() => {
     sceneApiRef.current?.refresh();
-  }, [petName, petStatus]);
+  }, [petName, petSpecies, petStatus]);
 
   return (
     <div className="overflow-hidden rounded-[28px] border border-orange-200 bg-[#fff7ed] shadow-[0_20px_60px_-28px_rgba(194,120,3,0.45)]">
