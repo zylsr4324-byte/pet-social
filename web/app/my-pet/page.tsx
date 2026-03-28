@@ -36,11 +36,16 @@ import {
   summarizeText,
 } from "../../lib/pet-display";
 import { PetSwitcher } from "../../lib/PetSwitcher";
-import { PetStatusPanel } from "../../lib/PetStatusPanel";
+import {
+  PetStatusPanel,
+  type PetStatus,
+  isPetStatus,
+} from "../../lib/PetStatusPanel";
 
 export default function MyPetPage() {
   const [pet, setPet] = useState<PetProfile | null>(null);
   const [petId, setPetId] = useState<number | null>(null);
+  const [petStatus, setPetStatus] = useState<PetStatus | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -325,6 +330,67 @@ export default function MyPetPage() {
     };
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!pet || !petId || !authToken) {
+      setPetStatus(null);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    const loadPetStatus = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/pets/${petId}/status`, {
+          cache: "no-store",
+          headers: buildAuthHeaders(authToken),
+        });
+
+        if (response.status === 401) {
+          clearStoredAuth();
+          clearStoredPetId();
+
+          if (isMounted) {
+            setAuthToken(null);
+            setPet(null);
+            setPetId(null);
+            setPetStatus(null);
+            setMessages([]);
+            setStatusMessage({
+              type: "info",
+              message: LOGIN_REQUIRED_MESSAGE,
+            });
+            setRecentChatStatus(null);
+          }
+          return;
+        }
+
+        if (!response.ok) {
+          if (isMounted) {
+            setPetStatus(null);
+          }
+          return;
+        }
+
+        const data: unknown = await response.json();
+        if (isMounted) {
+          setPetStatus(isPetStatus(data) ? data : null);
+        }
+      } catch {
+        if (isMounted) {
+          setPetStatus(null);
+        }
+      }
+    };
+
+    void loadPetStatus();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authToken, pet, petId]);
+
   const handlePetSwitch = (_newPetId: number) => {
     void _newPetId;
     window.location.reload();
@@ -566,7 +632,12 @@ export default function MyPetPage() {
 
               <div className="space-y-4 p-6">
                 {petId && authToken && (
-                  <PetStatusPanel petId={petId} authToken={authToken} />
+                  <PetStatusPanel
+                    petId={petId}
+                    authToken={authToken}
+                    status={petStatus}
+                    onStatusChange={setPetStatus}
+                  />
                 )}
 
                 <div className="rounded-2xl bg-gray-50 p-4">

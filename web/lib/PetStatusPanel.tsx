@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { buildAuthHeaders } from "./auth";
 import { API_BASE_URL } from "./constants";
@@ -17,6 +17,7 @@ export type PetStatus = {
 type PetStatusPanelProps = {
   petId: number;
   authToken: string;
+  status: PetStatus | null;
   onStatusChange?: (status: PetStatus) => void;
 };
 
@@ -101,36 +102,15 @@ export function isPetStatus(value: unknown): value is PetStatus {
 export function PetStatusPanel({
   petId,
   authToken,
+  status,
   onStatusChange,
 }: PetStatusPanelProps) {
-  const [status, setStatus] = useState<PetStatus | null>(null);
   const [isActing, setIsActing] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const syncStatus = (nextStatus: PetStatus) => {
-    setStatus(nextStatus);
     onStatusChange?.(nextStatus);
   };
-
-  const fetchStatus = async () => {
-    const response = await fetch(`${API_BASE_URL}/pets/${petId}/status`, {
-      cache: "no-store",
-      headers: buildAuthHeaders(authToken),
-    });
-
-    if (!response.ok) {
-      return;
-    }
-
-    const data: unknown = await response.json();
-    if (isPetStatus(data)) {
-      syncStatus(data);
-    }
-  };
-
-  useEffect(() => {
-    void fetchStatus();
-  }, [petId, authToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAction = async (endpoint: string, label: string) => {
     if (isActing) {

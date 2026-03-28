@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import {
   buildHomeSceneActionMessage,
   getHomeSceneBehavior,
   HOME_SCENE_OBJECTS,
 } from "../lib/home-scene";
-import type { PetStatus } from "../lib/PetStatusPanel";
+import { PetStatusPanel, type PetStatus } from "../lib/PetStatusPanel";
 
 function createStatus(overrides: Partial<PetStatus> = {}): PetStatus {
   return {
@@ -71,6 +73,43 @@ runTest("buildHomeSceneActionMessage falls back when backend detail is absent", 
     "床当前只作为休息目标点，不会立即写入数值。"
   );
   assert.equal(buildHomeSceneActionMessage("feed", "已喂食。"), "已喂食。");
+});
+
+runTest("PetStatusPanel follows the parent-owned status snapshot", () => {
+  const firstMarkup = renderToStaticMarkup(
+    createElement(PetStatusPanel, {
+      petId: 1,
+      authToken: "token",
+      status: createStatus({
+        fullness: 11,
+        hydration: 22,
+        affection: 33,
+        energy: 44,
+        cleanliness: 55,
+      }),
+    })
+  );
+
+  const secondMarkup = renderToStaticMarkup(
+    createElement(PetStatusPanel, {
+      petId: 1,
+      authToken: "token",
+      status: createStatus({
+        fullness: 66,
+        hydration: 77,
+        affection: 88,
+        energy: 99,
+        cleanliness: 12,
+      }),
+    })
+  );
+
+  assert.match(firstMarkup, />11</);
+  assert.match(firstMarkup, />22</);
+  assert.match(secondMarkup, />66</);
+  assert.match(secondMarkup, />77</);
+  assert.doesNotMatch(secondMarkup, />11</);
+  assert.doesNotMatch(secondMarkup, />22</);
 });
 
 console.log("Home scene regression checks passed.");

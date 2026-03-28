@@ -342,7 +342,9 @@ MVP 阶段**不做真正的自主社交**（没有 scheduler/worker 基础设施
 - 已完成：`3-R3` 机器自检通过：`web` 端 `npx eslint app lib` 与 `npm run build` 均已通过
 - 已完成：`3-R4` 为家庭场景增补最小前端回归验证，先覆盖固定物件语义与场景入口边界
 - 已完成：`3-R4` 机器自检通过：`web` 端 `npm run test:home-scene`、`npm run test:social`、`npx eslint app lib tests` 与 `npm run build` 均已通过
-- 待开始：`3-R5` 收口家庭场景状态面板与场景轮询的刷新边界，避免状态刷新与提示文案彼此覆盖
+- 已完成：`3-R5` 收口家庭场景当前 `status` 的单一状态源，改为页面统一持有状态、`PetStatusPanel` 受控展示，并同步补齐 `/my-pet` 的调用边界
+- 已完成：`3-R5` 机器自检通过：`web` 端 `npm run test:home-scene`、`npm run test:social`、`npx eslint app lib tests` 与 `npm run build` 均已通过
+- 待开始：`3-R6` 收口家庭场景提示文案的来源边界，拆清 `sceneMessage`、`statusMessage` 与面板内动作提示的职责
 
 #### 技术选型
 - **推荐**：Phaser.js（社区活跃，文档完善，适合俯视角 2D 游戏）
@@ -748,7 +750,7 @@ v1.0 完善上线      （引入 worker，实现真正自主社交）
 
 1. **站内社交是后续阶段的边界基础**：Phase 3 的场景内聊天、Phase 4 的 A2A 适配、Phase 5 的社区扩展，都会复用这套社交状态流
 2. **当前问题更偏结构而不是缺功能**：接口和表结构已具备 MVP，但 `/social` 页面职责混杂、状态提示不够清楚，需要先收口
-3. **适合按小步重做**：`Phase 3` 现先按小步收口。下一步建议做 `3-R5`，整理家庭场景轮询刷新、状态面板主动刷新和场景提示之间的边界，先避免局部交互时序继续变乱
+3. **适合按小步重做**：`Phase 3` 现先按小步收口。下一步建议做 `3-R6`，整理家庭场景页的提示文案来源，避免 `sceneMessage`、`statusMessage` 和状态面板内提示继续交叉覆盖
 
 ---
 

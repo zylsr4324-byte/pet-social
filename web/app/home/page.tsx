@@ -484,6 +484,7 @@ export default function HomeScenePage() {
                 <PetStatusPanel
                   petId={pet.id}
                   authToken={authToken}
+                  status={status}
                   onStatusChange={setStatus}
                 />
               ) : (
