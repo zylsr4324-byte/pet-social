@@ -35,6 +35,7 @@ import {
   summarizeText,
 } from "../../lib/pet-display";
 import { PetSwitcher } from "../../lib/PetSwitcher";
+import { PetStatusPanel } from "../../lib/PetStatusPanel";
 
 export default function MyPetPage() {
   const [pet, setPet] = useState<PetProfile | null>(null);
@@ -562,6 +563,10 @@ export default function MyPetPage() {
               </div>
 
               <div className="space-y-4 p-6">
+                {petId && authToken && (
+                  <PetStatusPanel petId={petId} authToken={authToken} />
+                )}
+
                 <div className="rounded-2xl bg-gray-50 p-4">
                   <p className="text-sm font-medium text-gray-900">性格摘要</p>
                   <p className="mt-3 text-sm leading-7 text-gray-600">
