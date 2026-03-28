@@ -82,7 +82,11 @@ runTest("pet interaction menu keeps status view and chat entry separate", () => 
     ["status", "chat"]
   );
   assert.equal(HOME_PET_INTERACTION_MENU_ITEMS[0]?.label, "查看状态面板");
-  assert.equal(HOME_PET_INTERACTION_MENU_ITEMS[1]?.label, "前往聊天入口");
+  assert.equal(HOME_PET_INTERACTION_MENU_ITEMS[1]?.label, "打开聊天窗口");
+  assert.equal(
+    HOME_PET_INTERACTION_MENU_ITEMS[1]?.description,
+    "直接在家庭场景里展开聊天窗口，不再跳转到独立聊天页面。"
+  );
 });
 
 runTest("HOME_SCENE_OBJECTS keeps fixed objects on unique tiles", () => {
@@ -136,7 +140,7 @@ runTest("home scene notices keep page, scene, and panel responsibilities separat
   assert.equal(petSceneNotice.tone, "info");
   assert.equal(
     petSceneNotice.text,
-    "已选中宠物。右侧会弹出互动菜单，你可以选择查看状态，或前往独立聊天入口。"
+    "已选中宠物。右侧会弹出互动菜单，你可以选择查看状态，或直接打开场景内聊天窗口。"
   );
   assert.equal(bedSceneNotice.scope, "scene");
   assert.equal(bedSceneNotice.tone, "info");

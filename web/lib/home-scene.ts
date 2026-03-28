@@ -82,8 +82,8 @@ export const HOME_PET_INTERACTION_MENU_ITEMS: PetInteractionMenuItem[] = [
   },
   {
     action: "chat",
-    label: "前往聊天入口",
-    description: "当前仍跳转到独立聊天页面，场景内聊天窗口留到后续步骤实现。",
+    label: "打开聊天窗口",
+    description: "直接在家庭场景里展开聊天窗口，不再跳转到独立聊天页面。",
   },
 ];
 
