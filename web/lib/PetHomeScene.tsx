@@ -4,66 +4,15 @@ import { useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 import type * as PhaserType from "phaser";
 
+import {
+  getHomeSceneBehavior,
+  HOME_SCENE_OBJECTS,
+  type HomeSceneObjectAction,
+  type HomeSceneObjectMeta,
+} from "./home-scene";
 import type { PetStatus } from "./PetStatusPanel";
 
-export type SceneAction = "pet" | "feed" | "drink" | "play" | "bed";
-export type HomeSceneObjectAction = Exclude<SceneAction, "pet">;
-export type HomeSceneObjectMeta = {
-  label: string;
-  tileX: number;
-  tileY: number;
-  color: number;
-  interactionKind: "instant" | "target";
-  badgeLabel: string;
-  panelDescription: string;
-  fallbackMessage: string;
-};
-
-export const HOME_SCENE_OBJECTS: Record<
-  HomeSceneObjectAction,
-  HomeSceneObjectMeta
-> = {
-  feed: {
-    label: "食盆",
-    tileX: 4,
-    tileY: 15,
-    color: 0xf59e0b,
-    interactionKind: "instant",
-    badgeLabel: "立即互动",
-    panelDescription: "点击后会马上调用喂食接口，直接结算这次照料动作。",
-    fallbackMessage: "已直接触发喂食互动。",
-  },
-  drink: {
-    label: "水盆",
-    tileX: 9,
-    tileY: 15,
-    color: 0x38bdf8,
-    interactionKind: "instant",
-    badgeLabel: "立即互动",
-    panelDescription: "点击后会马上调用喂水接口，直接更新当前口渴状态。",
-    fallbackMessage: "已直接触发喂水互动。",
-  },
-  play: {
-    label: "玩具",
-    tileX: 14,
-    tileY: 6,
-    color: 0xfb7185,
-    interactionKind: "instant",
-    badgeLabel: "立即互动",
-    panelDescription: "点击后会马上调用玩耍接口，直接结算好感和精力变化。",
-    fallbackMessage: "已直接触发玩耍互动。",
-  },
-  bed: {
-    label: "床",
-    tileX: 15,
-    tileY: 14,
-    color: 0xa78bfa,
-    interactionKind: "target",
-    badgeLabel: "休息目标",
-    panelDescription: "这里只表示宠物疲惫时会回床边休息，当前不会立即写入睡眠数值。",
-    fallbackMessage: "床当前只作为休息目标点，不会立即写入数值。",
-  },
-};
+export type SceneAction = "pet" | HomeSceneObjectAction;
 
 type PetHomeSceneProps = {
   petName: string;
@@ -95,38 +44,6 @@ function toWorld(tileX: number, tileY: number) {
     x: tileX * TILE_SIZE + TILE_SIZE / 2,
     y: tileY * TILE_SIZE + TILE_SIZE / 2,
   };
-}
-
-function getBehavior(status: PetStatus | null) {
-  if (!status) {
-    return { state: "idle", target: "feed" as const, label: "正在巡视房间" };
-  }
-
-  if (status.fullness < 55) {
-    return {
-      state: "hungry",
-      target: "feed" as const,
-      label: "肚子饿了，去找食盆",
-    };
-  }
-
-  if (status.hydration < 55) {
-    return {
-      state: "thirsty",
-      target: "drink" as const,
-      label: "有点口渴，去找水盆",
-    };
-  }
-
-  if (status.energy < 45) {
-    return {
-      state: "tired",
-      target: "bed" as const,
-      label: "有点困了，去床边休息",
-    };
-  }
-
-  return { state: "idle", target: "play" as const, label: "状态不错，四处溜达" };
 }
 
 function getPetTint(status: PetStatus | null) {
@@ -163,7 +80,7 @@ function createHomeScene(
 
   const refreshStatus = () => {
     const status = refs.statusRef.current;
-    const behavior = getBehavior(status);
+    const behavior = getHomeSceneBehavior(status);
 
     if (petBody) {
       petBody.setFillStyle(getPetTint(status));
@@ -342,7 +259,7 @@ function createHomeScene(
       return;
     }
 
-    const behavior = getBehavior(refs.statusRef.current);
+    const behavior = getHomeSceneBehavior(refs.statusRef.current);
     const targetSpot =
       behavior.state === "idle"
         ? IDLE_POINTS[idleIndex % IDLE_POINTS.length]

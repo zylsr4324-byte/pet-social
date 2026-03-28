@@ -22,12 +22,14 @@ import {
   recoverLatestPetForCurrentUser,
   type ApiPet,
 } from "../../lib/pet";
+import type { SceneAction } from "../../lib/PetHomeScene";
 import {
+  buildHomeSceneActionMessage,
+  getHomeSceneBehavior,
   HOME_SCENE_OBJECTS,
   type HomeSceneObjectAction,
   type HomeSceneObjectMeta,
-  type SceneAction,
-} from "../../lib/PetHomeScene";
+} from "../../lib/home-scene";
 import {
   PetStatusPanel,
   type PetStatus,
@@ -64,34 +66,6 @@ const TARGET_OBJECT_LABELS = SCENE_OBJECT_ENTRIES.filter(
 )
   .map(([, item]) => item.label)
   .join(" / ");
-
-function getBehaviorSummary(status: PetStatus | null) {
-  if (!status) {
-    return "状态读取中";
-  }
-
-  if (status.fullness < 55) {
-    return "Hungry：宠物会主动靠近食盆";
-  }
-
-  if (status.hydration < 55) {
-    return "Thirsty：宠物会主动靠近水盆";
-  }
-
-  if (status.energy < 45) {
-    return "Tired：宠物会回到床边休息";
-  }
-
-  return "Idle：宠物会在房间里随意巡视";
-}
-
-function buildSceneActionMessage(
-  action: HomeSceneObjectAction,
-  detail?: string | null
-) {
-  const prefix = HOME_SCENE_OBJECTS[action].fallbackMessage;
-  return detail ? `${prefix} ${detail}` : prefix;
-}
 
 function getObjectBadgeClass(kind: HomeSceneObjectMeta["interactionKind"]) {
   return kind === "instant"
@@ -273,7 +247,7 @@ export default function HomeScenePage() {
 
     if (action === "bed") {
       setIsPetPanelOpen(true);
-      setSceneMessage(buildSceneActionMessage(action));
+      setSceneMessage(buildHomeSceneActionMessage(action));
       return;
     }
 
@@ -310,10 +284,10 @@ export default function HomeScenePage() {
         typeof (data as { message?: unknown }).message === "string"
       ) {
         setSceneMessage(
-          buildSceneActionMessage(action, (data as { message: string }).message)
+          buildHomeSceneActionMessage(action, (data as { message: string }).message)
         );
       } else {
-        setSceneMessage(buildSceneActionMessage(action));
+        setSceneMessage(buildHomeSceneActionMessage(action));
       }
     } catch {
       setSceneMessage(
@@ -414,7 +388,7 @@ export default function HomeScenePage() {
                 </div>
 
                 <div className="rounded-full border border-white/80 bg-white/90 px-4 py-2 text-xs font-medium text-amber-700 shadow-sm">
-                  {getBehaviorSummary(status)}
+                  {getHomeSceneBehavior(status).summary}
                 </div>
               </div>
 
