@@ -23,12 +23,17 @@ import {
   type ApiPet,
 } from "../../lib/pet";
 import {
+  HOME_SCENE_OBJECTS,
+  type HomeSceneObjectAction,
+  type HomeSceneObjectMeta,
+  type SceneAction,
+} from "../../lib/PetHomeScene";
+import {
   PetStatusPanel,
   type PetStatus,
   isPetStatus,
 } from "../../lib/PetStatusPanel";
 import { PetSwitcher } from "../../lib/PetSwitcher";
-import type { SceneAction } from "../../lib/PetHomeScene";
 
 const PetHomeScene = dynamic(
   () =>
@@ -46,6 +51,19 @@ const PetHomeScene = dynamic(
 );
 
 const HOME_LOAD_FAILURE_MESSAGE = "加载家庭场景失败，请稍后再试。";
+const SCENE_OBJECT_ENTRIES = Object.entries(HOME_SCENE_OBJECTS) as Array<
+  [HomeSceneObjectAction, HomeSceneObjectMeta]
+>;
+const INSTANT_OBJECT_LABELS = SCENE_OBJECT_ENTRIES.filter(
+  ([, item]) => item.interactionKind === "instant"
+)
+  .map(([, item]) => item.label)
+  .join(" / ");
+const TARGET_OBJECT_LABELS = SCENE_OBJECT_ENTRIES.filter(
+  ([, item]) => item.interactionKind === "target"
+)
+  .map(([, item]) => item.label)
+  .join(" / ");
 
 function getBehaviorSummary(status: PetStatus | null) {
   if (!status) {
@@ -65,6 +83,20 @@ function getBehaviorSummary(status: PetStatus | null) {
   }
 
   return "Idle：宠物会在房间里随意巡视";
+}
+
+function buildSceneActionMessage(
+  action: HomeSceneObjectAction,
+  detail?: string | null
+) {
+  const prefix = HOME_SCENE_OBJECTS[action].fallbackMessage;
+  return detail ? `${prefix} ${detail}` : prefix;
+}
+
+function getObjectBadgeClass(kind: HomeSceneObjectMeta["interactionKind"]) {
+  return kind === "instant"
+    ? "bg-amber-100 text-amber-800"
+    : "bg-violet-100 text-violet-800";
 }
 
 export default function HomeScenePage() {
@@ -241,23 +273,22 @@ export default function HomeScenePage() {
 
     if (action === "bed") {
       setIsPetPanelOpen(true);
-      setSceneMessage(
-        "床当前只作为休息目标点。睡眠系统会在后续阶段继续补齐。"
-      );
+      setSceneMessage(buildSceneActionMessage(action));
       return;
     }
 
-    const endpoint = action === "play" ? "play" : action;
-
     try {
-      const response = await fetch(`${API_BASE_URL}/pets/${pet.id}/${endpoint}`, {
+      const response = await fetch(`${API_BASE_URL}/pets/${pet.id}/${action}`, {
         method: "POST",
         headers: buildAuthHeaders(authToken),
       });
 
       if (!response.ok) {
         setSceneMessage(
-          await getResponseErrorMessage(response, "场景互动失败，请稍后再试。")
+          await getResponseErrorMessage(
+            response,
+            `${HOME_SCENE_OBJECTS[action].label}互动失败，请稍后再试。`
+          )
         );
         return;
       }
@@ -278,12 +309,16 @@ export default function HomeScenePage() {
         "message" in data &&
         typeof (data as { message?: unknown }).message === "string"
       ) {
-        setSceneMessage((data as { message: string }).message);
+        setSceneMessage(
+          buildSceneActionMessage(action, (data as { message: string }).message)
+        );
       } else {
-        setSceneMessage("场景互动已完成。");
+        setSceneMessage(buildSceneActionMessage(action));
       }
     } catch {
-      setSceneMessage("场景互动失败，请检查网络连接。");
+      setSceneMessage(
+        `${HOME_SCENE_OBJECTS[action].label}互动失败，请检查网络连接。`
+      );
     }
   };
 
@@ -314,7 +349,7 @@ export default function HomeScenePage() {
               家庭场景主页
             </h1>
             <p className="mt-3 max-w-3xl text-base leading-7 text-gray-600">
-              这是当前宠物的俯视角家庭场景。宠物会根据状态主动走向食盆、水盆或床；点击宠物只负责打开状态面板，点击固定物件会直接触发互动，聊天仍然走独立入口。
+              这是当前宠物的俯视角家庭场景。宠物会根据状态主动走向食盆、水盆或床；点击宠物只负责打开状态面板，固定物件则分成“立即互动”和“行为目标点”两类。
             </p>
           </div>
 
@@ -392,28 +427,22 @@ export default function HomeScenePage() {
               />
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-2xl bg-white/80 p-4 text-sm text-gray-600 shadow-sm">
-                  <p className="font-medium text-gray-900">食盆</p>
-                  <p className="mt-2 leading-6">点击后触发喂食，饱食度会上升。</p>
-                </div>
-                <div className="rounded-2xl bg-white/80 p-4 text-sm text-gray-600 shadow-sm">
-                  <p className="font-medium text-gray-900">水盆</p>
-                  <p className="mt-2 leading-6">
-                    点击后触发喝水，口渴时宠物会主动靠近。
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-white/80 p-4 text-sm text-gray-600 shadow-sm">
-                  <p className="font-medium text-gray-900">玩具</p>
-                  <p className="mt-2 leading-6">
-                    点击后触发玩耍，状态良好时也会靠近巡视。
-                  </p>
-                </div>
-                <div className="rounded-2xl bg-white/80 p-4 text-sm text-gray-600 shadow-sm">
-                  <p className="font-medium text-gray-900">床</p>
-                  <p className="mt-2 leading-6">
-                    精力较低时会回床边休息，当前不直接写入睡眠数值。
-                  </p>
-                </div>
+                {SCENE_OBJECT_ENTRIES.map(([action, item]) => (
+                  <div
+                    key={action}
+                    className="rounded-2xl bg-white/80 p-4 text-sm text-gray-600 shadow-sm"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-medium text-gray-900">{item.label}</p>
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${getObjectBadgeClass(item.interactionKind)}`}
+                      >
+                        {item.badgeLabel}
+                      </span>
+                    </div>
+                    <p className="mt-2 leading-6">{item.panelDescription}</p>
+                  </div>
+                ))}
               </div>
 
               {sceneMessage ? (
@@ -431,7 +460,7 @@ export default function HomeScenePage() {
                       场景说明
                     </h2>
                     <p className="mt-2 text-sm leading-6 text-gray-600">
-                      点击宠物只会展开状态面板；点击固定物件会触发对应互动；聊天保持独立页面入口。
+                      点击宠物只会展开状态面板；固定物件则分成两类：立即互动点会直接调用接口，行为目标点只负责解释宠物当前会往哪里移动。
                     </p>
                   </div>
 
@@ -461,16 +490,17 @@ export default function HomeScenePage() {
 
                 <div className="mt-4 grid gap-3 text-sm leading-7 text-gray-600 md:grid-cols-2">
                   <div className="rounded-2xl bg-gray-50 p-4">
-                    <p className="font-medium text-gray-900">状态面板</p>
+                    <p className="font-medium text-gray-900">立即互动</p>
                     <p className="mt-2">
-                      点击场景里的宠物，或者点击右上按钮，只会打开状态面板。这里专门处理数值查看和喂食、喝水、玩耍、清洁。
+                      {INSTANT_OBJECT_LABELS}
+                      会在点击后马上调用后端接口，属于直接结算当前动作的交互点。
                     </p>
                   </div>
                   <div className="rounded-2xl bg-gray-50 p-4">
-                    <p className="font-medium text-gray-900">聊天入口</p>
+                    <p className="font-medium text-gray-900">行为目标点</p>
                     <p className="mt-2">
-                      家庭场景当前不在场景内直接打开聊天窗口。聊天继续走独立的
-                      ` /chat ` 页面，避免把场景互动和聊天上下文混在一起。
+                      {TARGET_OBJECT_LABELS}
+                      当前只负责表达宠物的移动目标和休息语义，不会立刻写入新的数值结果。
                     </p>
                   </div>
                 </div>

@@ -7,6 +7,63 @@ import type * as PhaserType from "phaser";
 import type { PetStatus } from "./PetStatusPanel";
 
 export type SceneAction = "pet" | "feed" | "drink" | "play" | "bed";
+export type HomeSceneObjectAction = Exclude<SceneAction, "pet">;
+export type HomeSceneObjectMeta = {
+  label: string;
+  tileX: number;
+  tileY: number;
+  color: number;
+  interactionKind: "instant" | "target";
+  badgeLabel: string;
+  panelDescription: string;
+  fallbackMessage: string;
+};
+
+export const HOME_SCENE_OBJECTS: Record<
+  HomeSceneObjectAction,
+  HomeSceneObjectMeta
+> = {
+  feed: {
+    label: "食盆",
+    tileX: 4,
+    tileY: 15,
+    color: 0xf59e0b,
+    interactionKind: "instant",
+    badgeLabel: "立即互动",
+    panelDescription: "点击后会马上调用喂食接口，直接结算这次照料动作。",
+    fallbackMessage: "已直接触发喂食互动。",
+  },
+  drink: {
+    label: "水盆",
+    tileX: 9,
+    tileY: 15,
+    color: 0x38bdf8,
+    interactionKind: "instant",
+    badgeLabel: "立即互动",
+    panelDescription: "点击后会马上调用喂水接口，直接更新当前口渴状态。",
+    fallbackMessage: "已直接触发喂水互动。",
+  },
+  play: {
+    label: "玩具",
+    tileX: 14,
+    tileY: 6,
+    color: 0xfb7185,
+    interactionKind: "instant",
+    badgeLabel: "立即互动",
+    panelDescription: "点击后会马上调用玩耍接口，直接结算好感和精力变化。",
+    fallbackMessage: "已直接触发玩耍互动。",
+  },
+  bed: {
+    label: "床",
+    tileX: 15,
+    tileY: 14,
+    color: 0xa78bfa,
+    interactionKind: "target",
+    badgeLabel: "休息目标",
+    panelDescription: "这里只表示宠物疲惫时会回床边休息，当前不会立即写入睡眠数值。",
+    fallbackMessage: "床当前只作为休息目标点，不会立即写入数值。",
+  },
+};
 
 type PetHomeSceneProps = {
   petName: string;
@@ -25,13 +82,6 @@ const GRID_SIZE = 20;
 const TILE_SIZE = 28;
 const SCENE_WIDTH = GRID_SIZE * TILE_SIZE;
 const SCENE_HEIGHT = GRID_SIZE * TILE_SIZE;
-
-const FIXED_SPOTS = {
-  feed: { label: "食盆", tileX: 4, tileY: 15, color: 0xf59e0b },
-  drink: { label: "水盆", tileX: 9, tileY: 15, color: 0x38bdf8 },
-  play: { label: "玩具", tileX: 14, tileY: 6, color: 0xfb7185 },
-  bed: { label: "床", tileX: 15, tileY: 14, color: 0xa78bfa },
-} as const;
 
 const IDLE_POINTS = [
   { tileX: 6, tileY: 6 },
@@ -53,7 +103,11 @@ function getBehavior(status: PetStatus | null) {
   }
 
   if (status.fullness < 55) {
-    return { state: "hungry", target: "feed" as const, label: "肚子饿了，去找食盆" };
+    return {
+      state: "hungry",
+      target: "feed" as const,
+      label: "肚子饿了，去找食盆",
+    };
   }
 
   if (status.hydration < 55) {
@@ -65,7 +119,11 @@ function getBehavior(status: PetStatus | null) {
   }
 
   if (status.energy < 45) {
-    return { state: "tired", target: "bed" as const, label: "有点困了，去床边休息" };
+    return {
+      state: "tired",
+      target: "bed" as const,
+      label: "有点困了，去床边休息",
+    };
   }
 
   return { state: "idle", target: "play" as const, label: "状态不错，四处溜达" };
@@ -189,27 +247,38 @@ function createHomeScene(
 
   const drawFixedObjects = () => {
     (
-      Object.entries(FIXED_SPOTS) as Array<
-        [Exclude<SceneAction, "pet">, (typeof FIXED_SPOTS)[keyof typeof FIXED_SPOTS]]
+      Object.entries(HOME_SCENE_OBJECTS) as Array<
+        [HomeSceneObjectAction, HomeSceneObjectMeta]
       >
     ).forEach(([action, spot]) => {
       const { x, y } = toWorld(spot.tileX, spot.tileY);
       const container = scene.add.container(x, y);
-      const base = scene.add.rectangle(0, 0, 54, 42, spot.color, 0.95);
-      base.setStrokeStyle(3, 0xffffff, 0.9);
+      const base = scene.add.rectangle(0, 0, 64, 48, spot.color, 0.95);
+      base.setStrokeStyle(
+        3,
+        spot.interactionKind === "instant" ? 0xffffff : 0xe9d5ff,
+        0.95
+      );
 
-      const label = scene.add.text(0, 0, spot.label, {
+      const label = scene.add.text(0, -7, spot.label, {
         color: "#1f2937",
         fontSize: "14px",
         fontStyle: "bold",
       });
       label.setOrigin(0.5);
 
-      container.add([base, label]);
+      const hint = scene.add.text(0, 10, spot.badgeLabel, {
+        color: spot.interactionKind === "instant" ? "#9a3412" : "#6b21a8",
+        fontSize: "10px",
+        fontStyle: "bold",
+      });
+      hint.setOrigin(0.5);
+
+      container.add([base, label, hint]);
       container.setDepth(4);
-      container.setSize(54, 42);
+      container.setSize(64, 48);
       container.setInteractive(
-        new PhaserRuntime.Geom.Rectangle(-27, -21, 54, 42),
+        new PhaserRuntime.Geom.Rectangle(-32, -24, 64, 48),
         PhaserRuntime.Geom.Rectangle.Contains
       );
       container.on("pointerdown", () => refs.actionRef.current(action));
@@ -222,7 +291,7 @@ function createHomeScene(
     const body = scene.add.circle(0, 0, 18, getPetTint(refs.statusRef.current));
     const leftEar = scene.add.triangle(-10, -16, 0, 0, 8, -16, 16, 0, 0xeab308);
     const rightEar = scene.add.triangle(10, -16, 0, 0, 8, -16, 16, 0, 0xeab308);
-    const face = scene.add.text(0, -1, "•ᴥ•", {
+    const face = scene.add.text(0, -1, "^.^", {
       color: "#1f2937",
       fontSize: "12px",
     });
@@ -277,7 +346,7 @@ function createHomeScene(
     const targetSpot =
       behavior.state === "idle"
         ? IDLE_POINTS[idleIndex % IDLE_POINTS.length]
-        : FIXED_SPOTS[behavior.target];
+        : HOME_SCENE_OBJECTS[behavior.target];
 
     if (behavior.state === "idle") {
       idleIndex += 1;
