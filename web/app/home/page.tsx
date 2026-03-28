@@ -22,7 +22,11 @@ import {
   recoverLatestPetForCurrentUser,
   type ApiPet,
 } from "../../lib/pet";
-import { PetStatusPanel, type PetStatus, isPetStatus } from "../../lib/PetStatusPanel";
+import {
+  PetStatusPanel,
+  type PetStatus,
+  isPetStatus,
+} from "../../lib/PetStatusPanel";
 import { PetSwitcher } from "../../lib/PetSwitcher";
 import type { SceneAction } from "../../lib/PetHomeScene";
 
@@ -141,7 +145,7 @@ export default function HomeScenePage() {
 
         if (!activePetId) {
           if (isMounted) {
-            setStatusMessage("还没有宠物，先去创建一只再进入家庭场景。");
+            setStatusMessage("你还没有宠物，先去创建一只再进入家庭场景。");
           }
           return;
         }
@@ -229,13 +233,17 @@ export default function HomeScenePage() {
 
     if (action === "pet") {
       setIsPetPanelOpen(true);
-      setSceneMessage("已打开宠物状态面板。");
+      setSceneMessage(
+        "已选中宠物。右侧只负责状态查看和照料动作；聊天请使用独立聊天入口。"
+      );
       return;
     }
 
     if (action === "bed") {
       setIsPetPanelOpen(true);
-      setSceneMessage("床当前作为休息目标点，睡眠系统会在后续阶段继续扩展。");
+      setSceneMessage(
+        "床当前只作为休息目标点。睡眠系统会在后续阶段继续补齐。"
+      );
       return;
     }
 
@@ -306,7 +314,7 @@ export default function HomeScenePage() {
               家庭场景主页
             </h1>
             <p className="mt-3 max-w-3xl text-base leading-7 text-gray-600">
-              这是当前宠物的俯视角家庭场景。宠物会根据状态主动走向食盆、水盆或床，点击宠物可打开状态面板，点击固定物件可直接互动。
+              这是当前宠物的俯视角家庭场景。宠物会根据状态主动走向食盆、水盆或床；点击宠物只负责打开状态面板，点击固定物件会直接触发互动，聊天仍然走独立入口。
             </p>
           </div>
 
@@ -342,7 +350,9 @@ export default function HomeScenePage() {
 
         {isLoaded && authToken && !pet ? (
           <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8">
-            <h2 className="text-2xl font-semibold text-gray-900">还没有家庭场景主角</h2>
+            <h2 className="text-2xl font-semibold text-gray-900">
+              还没有家庭场景主角
+            </h2>
             <p className="mt-3 text-sm leading-7 text-gray-600">
               {statusMessage || "先创建宠物，再回来体验家庭场景。"}
             </p>
@@ -388,15 +398,21 @@ export default function HomeScenePage() {
                 </div>
                 <div className="rounded-2xl bg-white/80 p-4 text-sm text-gray-600 shadow-sm">
                   <p className="font-medium text-gray-900">水盆</p>
-                  <p className="mt-2 leading-6">点击后触发喂水，口渴时宠物会主动靠近。</p>
+                  <p className="mt-2 leading-6">
+                    点击后触发喝水，口渴时宠物会主动靠近。
+                  </p>
                 </div>
                 <div className="rounded-2xl bg-white/80 p-4 text-sm text-gray-600 shadow-sm">
                   <p className="font-medium text-gray-900">玩具</p>
-                  <p className="mt-2 leading-6">点击后触发玩耍，状态良好时也会靠近巡视。</p>
+                  <p className="mt-2 leading-6">
+                    点击后触发玩耍，状态良好时也会靠近巡视。
+                  </p>
                 </div>
                 <div className="rounded-2xl bg-white/80 p-4 text-sm text-gray-600 shadow-sm">
                   <p className="font-medium text-gray-900">床</p>
-                  <p className="mt-2 leading-6">精力较低时会回床边休息，当前不直接写入睡眠数值。</p>
+                  <p className="mt-2 leading-6">
+                    精力较低时会回床边休息，当前不直接写入睡眠数值。
+                  </p>
                 </div>
               </div>
 
@@ -409,27 +425,54 @@ export default function HomeScenePage() {
 
             <div className="space-y-6">
               <section className="rounded-[32px] border border-orange-100 bg-white p-6 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-xl font-semibold text-gray-900">场景说明</h2>
+                    <h2 className="text-xl font-semibold text-gray-900">
+                      场景说明
+                    </h2>
                     <p className="mt-2 text-sm leading-6 text-gray-600">
-                      点击宠物会展开状态面板，点击固定物件会触发对应互动。
+                      点击宠物只会展开状态面板；点击固定物件会触发对应互动；聊天保持独立页面入口。
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setIsPetPanelOpen((open) => !open)}
-                    className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:border-gray-400 hover:text-gray-900"
-                  >
-                    {isPetPanelOpen ? "收起面板" : "打开状态面板"}
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsPetPanelOpen((open) => !open)}
+                      className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:border-gray-400 hover:text-gray-900"
+                    >
+                      {isPetPanelOpen ? "收起状态面板" : "打开状态面板"}
+                    </button>
+                    <Link
+                      href="/chat"
+                      className="inline-flex rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-700"
+                    >
+                      去和 {pet.petName} 聊天
+                    </Link>
+                  </div>
                 </div>
 
                 <div className="mt-4 rounded-2xl bg-gray-50 p-4 text-sm leading-7 text-gray-600">
                   <p>房间布局：左上客厅，右上厨房，右下卧室。</p>
-                  <p>行为规则：饥饿优先找食盆，口渴优先找水盆，疲惫优先找床，否则在房间里巡视。</p>
-                  <p>交互入口：状态面板复用 Phase 2 的数值面板，聊天继续走现有 `/chat` 页面。</p>
+                  <p>
+                    行为规则：饥饿优先找食盆，口渴优先找水盆，疲惫优先找床，否则在房间里巡视。
+                  </p>
+                </div>
+
+                <div className="mt-4 grid gap-3 text-sm leading-7 text-gray-600 md:grid-cols-2">
+                  <div className="rounded-2xl bg-gray-50 p-4">
+                    <p className="font-medium text-gray-900">状态面板</p>
+                    <p className="mt-2">
+                      点击场景里的宠物，或者点击右上按钮，只会打开状态面板。这里专门处理数值查看和喂食、喝水、玩耍、清洁。
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-gray-50 p-4">
+                    <p className="font-medium text-gray-900">聊天入口</p>
+                    <p className="mt-2">
+                      家庭场景当前不在场景内直接打开聊天窗口。聊天继续走独立的
+                      ` /chat ` 页面，避免把场景互动和聊天上下文混在一起。
+                    </p>
+                  </div>
                 </div>
               </section>
 
@@ -441,12 +484,17 @@ export default function HomeScenePage() {
                 />
               ) : (
                 <section className="rounded-[32px] border border-dashed border-gray-200 bg-gray-50 p-6 text-sm leading-7 text-gray-500">
-                  点击场景里的宠物，或者点右上按钮，就会打开状态面板。
+                  点击场景里的宠物，或者点右上按钮，就会打开状态面板。聊天请使用独立的聊天入口。
                 </section>
               )}
 
               <section className="rounded-[32px] border border-orange-100 bg-white p-6 shadow-sm">
-                <h2 className="text-xl font-semibold text-gray-900">快捷入口</h2>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  独立页面入口
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-gray-600">
+                  家庭场景只处理地图移动和固定物件互动，其它能力继续保持独立页面入口。
+                </p>
                 <div className="mt-4 flex flex-wrap gap-3">
                   <Link
                     href="/chat"
