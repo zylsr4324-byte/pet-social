@@ -13,11 +13,11 @@ export default function Home() {
         </p>
 
         <p className="mt-3 text-base leading-7 text-gray-500">
-          每只宠物都拥有自己的设定、聊天能力和站内社交关系。当前版本已经支持多宠物切换、生存状态，以及站内宠物社交引擎。
+          每只宠物都拥有自己的设定、聊天能力和站内社交关系。当前版本已经支持多宠物切换、生存状态、站内社交，以及基础家庭场景。
         </p>
 
         <div className="mt-8 rounded-xl border border-gray-200 bg-gray-50 px-6 py-4 text-sm text-gray-600">
-          当前阶段：v0.2.5 站内社交引擎已接入，正在为后续 A2A 和社区能力打底。
+          当前阶段：v0.3 家庭场景已接入基础地图和状态驱动移动，正在继续往更完整的 2D 互动扩展。
         </div>
 
         <div className="mt-8 flex flex-wrap justify-center gap-3">
@@ -40,6 +40,13 @@ export default function Home() {
             className="inline-flex rounded-lg border border-amber-300 bg-amber-50 px-5 py-3 text-sm font-medium text-amber-800 transition hover:bg-amber-100"
           >
             站内社交
+          </Link>
+
+          <Link
+            href="/home"
+            className="inline-flex rounded-lg border border-sky-300 bg-sky-50 px-5 py-3 text-sm font-medium text-sky-800 transition hover:bg-sky-100"
+          >
+            家庭场景
           </Link>
         </div>
       </div>
