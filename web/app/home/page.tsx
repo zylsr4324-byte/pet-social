@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 
 import {
   buildAuthHeaders,
@@ -31,15 +31,18 @@ import {
 } from "../../lib/home-scene";
 import {
   createHomePageNotice,
+  createHomeStatusSyncNotice,
   createPetSelectionSceneNotice,
   createSceneActionErrorNotice,
   createSceneActionNetworkNotice,
   createSceneActionSuccessNotice,
   createSceneTargetNotice,
+  getHomeStatusSyncNoticeClassName,
   getHomeSceneNoticeClassName,
   getNoticeAutoDismissMs,
   type HomePageNotice,
   type HomeSceneNotice,
+  type HomeStatusSyncNotice,
 } from "../../lib/home-scene-notice";
 import {
   PetStatusPanel,
@@ -84,6 +87,11 @@ function getObjectBadgeClass(kind: HomeSceneObjectMeta["interactionKind"]) {
     : "bg-violet-100 text-violet-800";
 }
 
+type StatusFetchResult =
+  | { kind: "success"; status: PetStatus }
+  | { kind: "unauthorized" }
+  | { kind: "failed" };
+
 export default function HomeScenePage() {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [pet, setPet] = useState<ApiPet | null>(null);
@@ -93,38 +101,60 @@ export default function HomeScenePage() {
   const [pageStatusNotice, setPageStatusNotice] =
     useState<HomePageNotice | null>(null);
   const [sceneNotice, setSceneNotice] = useState<HomeSceneNotice | null>(null);
+  const [statusSyncNotice, setStatusSyncNotice] =
+    useState<HomeStatusSyncNotice | null>(null);
 
-  const fetchPetStatus = async (
+  const applyStatusSnapshot = (nextStatus: PetStatus) => {
+    setStatus(nextStatus);
+    setStatusSyncNotice(null);
+  };
+
+  const fetchPetStatus = useEffectEvent(async (
     activePetId: number,
     token: string
-  ): Promise<PetStatus | null> => {
-    const response = await fetch(`${API_BASE_URL}/pets/${activePetId}/status`, {
-      cache: "no-store",
-      headers: buildAuthHeaders(token),
-    });
+  ): Promise<StatusFetchResult> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/pets/${activePetId}/status`, {
+        cache: "no-store",
+        headers: buildAuthHeaders(token),
+      });
 
-    if (response.status === 401) {
-      clearStoredAuth();
-      clearStoredPetId();
-      setAuthToken(null);
-      setPet(null);
-      setStatus(null);
-      setPageStatusNotice(createHomePageNotice(LOGIN_REQUIRED_MESSAGE, "info"));
-      return null;
+      if (response.status === 401) {
+        clearStoredAuth();
+        clearStoredPetId();
+        setAuthToken(null);
+        setPet(null);
+        setStatus(null);
+        setStatusSyncNotice(null);
+        setPageStatusNotice(createHomePageNotice(LOGIN_REQUIRED_MESSAGE, "info"));
+        return { kind: "unauthorized" };
+      }
+
+      if (!response.ok) {
+        return { kind: "failed" };
+      }
+
+      const data: unknown = await response.json();
+      if (!isPetStatus(data)) {
+        return { kind: "failed" };
+      }
+
+      applyStatusSnapshot(data);
+      return { kind: "success", status: data };
+    } catch {
+      return { kind: "failed" };
     }
+  });
 
-    if (!response.ok) {
-      return null;
+  const pollPetStatus = useEffectEvent(async (
+    activePetId: number,
+    token: string
+  ) => {
+    const result = await fetchPetStatus(activePetId, token);
+    if (result.kind === "failed") {
+      setStatusSyncNotice(createHomeStatusSyncNotice());
     }
-
-    const data: unknown = await response.json();
-    if (!isPetStatus(data)) {
-      return null;
-    }
-
-    setStatus(data);
-    return data;
-  };
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -217,7 +247,10 @@ export default function HomeScenePage() {
           setPageStatusNotice(null);
         }
 
-        await fetchPetStatus(petData.pet.id, storedAuthToken);
+        const statusResult = await fetchPetStatus(petData.pet.id, storedAuthToken);
+        if (isMounted && statusResult.kind === "failed") {
+          setStatusSyncNotice(createHomeStatusSyncNotice());
+        }
       } catch {
         if (isMounted) {
           setPageStatusNotice(createHomePageNotice(HOME_LOAD_FAILURE_MESSAGE));
@@ -238,11 +271,12 @@ export default function HomeScenePage() {
 
   useEffect(() => {
     if (!pet || !authToken) {
+      setStatusSyncNotice(null);
       return;
     }
 
     const intervalId = window.setInterval(() => {
-      void fetchPetStatus(pet.id, authToken);
+      void pollPetStatus(pet.id, authToken);
     }, 12000);
 
     return () => {
@@ -317,7 +351,7 @@ export default function HomeScenePage() {
         "status" in data &&
         isPetStatus((data as { status?: unknown }).status)
       ) {
-        setStatus((data as { status: PetStatus }).status);
+        applyStatusSnapshot((data as { status: PetStatus }).status);
       }
 
       if (
@@ -463,6 +497,14 @@ export default function HomeScenePage() {
                 ))}
               </div>
 
+              {statusSyncNotice ? (
+                <div
+                  className={`mt-3 rounded-2xl border px-4 py-3 text-sm leading-6 ${getHomeStatusSyncNoticeClassName(statusSyncNotice.tone)}`}
+                >
+                  {statusSyncNotice.text}
+                </div>
+              ) : null}
+
               {sceneNotice ? (
                 <div
                   className={`mt-4 rounded-2xl border px-4 py-3 text-sm leading-6 ${getHomeSceneNoticeClassName(sceneNotice.tone)}`}
@@ -531,7 +573,7 @@ export default function HomeScenePage() {
                   petId={pet.id}
                   authToken={authToken}
                   status={status}
-                  onStatusChange={setStatus}
+                  onStatusChange={applyStatusSnapshot}
                 />
               ) : (
                 <section className="rounded-[32px] border border-dashed border-gray-200 bg-gray-50 p-6 text-sm leading-7 text-gray-500">

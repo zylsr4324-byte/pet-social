@@ -22,10 +22,17 @@ export type StatusPanelNotice = {
   text: string;
 };
 
+export type HomeStatusSyncNotice = {
+  scope: "sync";
+  tone: "warning";
+  text: string;
+};
+
 export type HomeNoticeScope =
   | HomePageNotice["scope"]
   | HomeSceneNotice["scope"]
-  | StatusPanelNotice["scope"];
+  | StatusPanelNotice["scope"]
+  | HomeStatusSyncNotice["scope"];
 
 function normalizeNoticeText(text?: string | null) {
   const normalizedText = text?.trim();
@@ -144,6 +151,22 @@ export function getStatusPanelNoticeClassName(
   tone: StatusPanelNotice["tone"]
 ): string {
   return tone === "success" ? "text-emerald-700" : "text-rose-700";
+}
+
+export function createHomeStatusSyncNotice(): HomeStatusSyncNotice {
+  return {
+    scope: "sync",
+    tone: "warning",
+    text: "状态同步暂时失败，当前显示的数值可能不是最新。",
+  };
+}
+
+export function getHomeStatusSyncNoticeClassName(
+  tone: HomeStatusSyncNotice["tone"]
+): string {
+  return tone === "warning"
+    ? "border-amber-200 bg-amber-50/80 text-amber-800"
+    : "border-amber-200 bg-amber-50/80 text-amber-800";
 }
 
 export function getNoticeAutoDismissMs(

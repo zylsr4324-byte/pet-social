@@ -9,6 +9,7 @@ import {
 } from "../lib/home-scene";
 import {
   createHomePageNotice,
+  createHomeStatusSyncNotice,
   createPetSelectionSceneNotice,
   createSceneActionErrorNotice,
   createSceneActionSuccessNotice,
@@ -87,6 +88,7 @@ runTest("buildHomeSceneActionMessage falls back when backend detail is absent", 
 
 runTest("home scene notices keep page, scene, and panel responsibilities separate", () => {
   const pageNotice = createHomePageNotice("请先登录。", "info");
+  const statusSyncNotice = createHomeStatusSyncNotice();
   const petSceneNotice = createPetSelectionSceneNotice();
   const bedSceneNotice = createSceneTargetNotice("bed");
   const sceneSuccessNotice = createSceneActionSuccessNotice("feed", "已喂食。");
@@ -98,6 +100,11 @@ runTest("home scene notices keep page, scene, and panel responsibilities separat
     scope: "page",
     tone: "info",
     text: "请先登录。",
+  });
+  assert.deepEqual(statusSyncNotice, {
+    scope: "sync",
+    tone: "warning",
+    text: "状态同步暂时失败，当前显示的数值可能不是最新。",
   });
   assert.equal(petSceneNotice.scope, "scene");
   assert.equal(petSceneNotice.tone, "info");
@@ -132,6 +139,7 @@ runTest("home scene notices keep page, scene, and panel responsibilities separat
     text: "喂食失败了，请稍后再试。",
   });
   assert.equal(getNoticeAutoDismissMs("page"), null);
+  assert.equal(getNoticeAutoDismissMs("sync"), null);
   assert.equal(getNoticeAutoDismissMs("scene"), 4200);
   assert.equal(getNoticeAutoDismissMs("panel"), 3200);
 });

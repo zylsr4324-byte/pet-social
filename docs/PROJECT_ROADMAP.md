@@ -348,7 +348,9 @@ MVP 阶段**不做真正的自主社交**（没有 scheduler/worker 基础设施
 - 已完成：`3-R6` 机器自检通过：`web` 端 `npm run test:home-scene`、`npm run test:social`、`npx eslint app lib tests` 与 `npm run build` 均已通过
 - 已完成：`3-R7` 收口家庭场景提示的清理时机，为场景提示与面板提示补上统一自动清理策略，避免旧提示长期滞留
 - 已完成：`3-R7` 机器自检通过：`web` 端 `npm run test:home-scene`、`npm run test:social`、`npx eslint app lib tests` 与 `npm run build` 均已通过
-- 待开始：`3-R8` 收口家庭场景轮询状态失败时的降级反馈，避免状态刷新失败完全静默
+- 已完成：`3-R8` 收口家庭场景轮询状态失败时的降级反馈，新增独立 `statusSyncNotice` 通道，并在下一次成功拿到状态后自动清除
+- 已完成：`3-R8` 机器自检通过：`web` 端 `npm run test:home-scene`、`npm run test:social`、`npx eslint app lib tests` 与 `npm run build` 均已通过
+- 待开始：`3-R9` 收口家庭场景状态新鲜度展示，补充最近一次成功同步的时间提示
 
 #### 技术选型
 - **推荐**：Phaser.js（社区活跃，文档完善，适合俯视角 2D 游戏）
@@ -754,7 +756,7 @@ v1.0 完善上线      （引入 worker，实现真正自主社交）
 
 1. **站内社交是后续阶段的边界基础**：Phase 3 的场景内聊天、Phase 4 的 A2A 适配、Phase 5 的社区扩展，都会复用这套社交状态流
 2. **当前问题更偏结构而不是缺功能**：接口和表结构已具备 MVP，但 `/social` 页面职责混杂、状态提示不够清楚，需要先收口
-3. **适合按小步重做**：`Phase 3` 现先按小步收口。下一步建议做 `3-R8`，整理家庭场景轮询状态失败时的降级反馈，避免刷新失败完全静默又不至于打断当前操作
+3. **适合按小步重做**：`Phase 3` 现先按小步收口。下一步建议做 `3-R9`，补充家庭场景最近一次成功同步时间，让“状态是否新鲜”对用户更明确
 
 ---
 
