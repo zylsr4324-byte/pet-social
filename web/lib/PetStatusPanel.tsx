@@ -87,7 +87,7 @@ export function PetStatusPanel({ petId, authToken }: PetStatusPanelProps) {
 
   useEffect(() => {
     fetchStatus();
-  }, [petId, authToken]);
+  }, [petId, authToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAction = async (endpoint: string, label: string) => {
     if (isActing) return;

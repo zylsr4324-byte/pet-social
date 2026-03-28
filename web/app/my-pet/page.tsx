@@ -22,6 +22,7 @@ import {
   mapApiPetToProfile,
   readStoredPetId,
   recoverLatestPetForCurrentUser,
+  type ApiPet,
   writeStoredPetId,
   type PetProfile,
 } from "../../lib/pet";
@@ -324,7 +325,8 @@ export default function MyPetPage() {
     };
   }, []);
 
-  const handlePetSwitch = (newPetId: number) => {
+  const handlePetSwitch = (_newPetId: number) => {
+    void _newPetId;
     window.location.reload();
   };
 

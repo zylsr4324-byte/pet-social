@@ -112,3 +112,106 @@ class PetActionResponse(BaseModel):
     message: str
     status: PetStatusResponse
 
+
+class FriendshipCreateRequest(BaseModel):
+    targetPetId: int
+    message: str | None = Field(default=None, max_length=500)
+
+
+class SocialSendRequest(BaseModel):
+    targetPetId: int
+    message: str = Field(min_length=1, max_length=500)
+
+
+class PetTaskResponse(BaseModel):
+    id: int
+    targetPetId: int
+    sourcePetId: int | None
+    taskType: str
+    state: str
+    inputText: str
+    outputText: str | None
+    createdAt: datetime
+    completedAt: datetime | None
+
+
+class SocialMessageResponse(BaseModel):
+    id: int
+    conversationId: int
+    senderPetId: int
+    content: str
+    createdAt: datetime
+
+
+class SocialConversationResponse(BaseModel):
+    conversationId: int
+    withPet: PetResponse
+    messages: list[SocialMessageResponse]
+
+
+class SocialMessageListResponse(BaseModel):
+    message: str
+    conversation: SocialConversationResponse
+
+
+class FriendshipResponse(BaseModel):
+    friend: PetResponse
+    status: str
+    initiatedBy: int
+    direction: str
+    conversationId: int | None
+    lastMessagePreview: str | None
+    createdAt: datetime
+    acceptedAt: datetime | None
+
+
+class FriendshipListResponse(BaseModel):
+    message: str
+    friends: list[FriendshipResponse]
+
+
+class FriendshipActionResponse(BaseModel):
+    message: str
+    friendship: FriendshipResponse
+
+
+class SocialCandidateResponse(BaseModel):
+    pet: PetResponse
+    friendshipStatus: str | None
+    direction: str
+    conversationId: int | None
+    canRequest: bool
+    canChat: bool
+
+
+class SocialCandidateListResponse(BaseModel):
+    message: str
+    candidates: list[SocialCandidateResponse]
+
+
+class SocialTaskHistoryItemResponse(BaseModel):
+    task: PetTaskResponse
+    counterpartPet: PetResponse | None
+
+
+class SocialTaskListResponse(BaseModel):
+    message: str
+    tasks: list[SocialTaskHistoryItemResponse]
+
+
+class SocialSendResponse(BaseModel):
+    message: str
+    task: PetTaskResponse
+    sentMessage: SocialMessageResponse
+    replyMessage: SocialMessageResponse
+    conversationId: int
+    targetPet: PetResponse
+
+
+class SocialRoundResponse(BaseModel):
+    message: str
+    task: PetTaskResponse
+    sentMessage: SocialMessageResponse
+    replyMessage: SocialMessageResponse
+    conversationId: int
+    targetPet: PetResponse

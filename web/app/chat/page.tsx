@@ -25,6 +25,7 @@ import {
   isPetApiResponse,
   readStoredPetId,
   recoverLatestPetForCurrentUser,
+  type ApiPet,
   writeStoredPetId,
 } from "../../lib/pet";
 import { PetSwitcher } from "../../lib/PetSwitcher";
@@ -53,7 +54,8 @@ export default function ChatPage() {
   );
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const handlePetSwitch = (newPetId: number) => {
+  const handlePetSwitch = (_newPetId: number) => {
+    void _newPetId;
     window.location.reload();
   };
 
