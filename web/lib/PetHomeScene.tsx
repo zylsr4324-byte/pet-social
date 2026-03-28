@@ -327,11 +327,11 @@ function createHomeScene(
     });
 
     refs.apiRef.current = { refresh: refreshStatus };
-  };
 
-  scene.events.on("shutdown", () => {
-    refs.apiRef.current = null;
-  });
+    scene.events.once("shutdown", () => {
+      refs.apiRef.current = null;
+    });
+  };
 
   return scene;
 }
