@@ -1,8 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
+import {
+  SocialConversationPanel,
+  SocialFriendshipsPanel,
+  SocialTargetsPanel,
+  SocialTaskHistoryPanel,
+} from "../../lib/SocialDashboardSections";
 import {
   buildAuthHeaders,
   clearStoredAuth,
@@ -279,10 +285,7 @@ export default function SocialPage() {
     }
 
     const data: unknown = await response.json();
-    if (
-      !isFriendshipActionResponse(data) &&
-      !isSocialSendResponse(data)
-    ) {
+    if (!isFriendshipActionResponse(data) && !isSocialSendResponse(data)) {
       throw new Error(ACTION_FAILURE_MESSAGE);
     }
 
@@ -294,10 +297,78 @@ export default function SocialPage() {
     window.location.reload();
   };
 
+  const handleRunSocialRound = async () => {
+    if (!petId || !authToken) {
+      return;
+    }
+
+    await runAction(async () => {
+      await postAndRefresh(`${API_BASE_URL}/pets/${petId}/social/round`, {
+        method: "POST",
+        headers: buildAuthHeaders(authToken),
+      });
+    });
+  };
+
+  const handleRequestFriendship = async (targetPetId: number) => {
+    if (!petId || !authToken) {
+      return;
+    }
+
+    await runAction(async () => {
+      await postAndRefresh(
+        `${API_BASE_URL}/pets/${petId}/friends/request`,
+        {
+          method: "POST",
+          headers: buildAuthHeaders(authToken, true),
+          body: JSON.stringify({
+            targetPetId,
+          }),
+        },
+        targetPetId
+      );
+    });
+  };
+
+  const handleAcceptFriendship = async (friendId: number) => {
+    if (!petId || !authToken) {
+      return;
+    }
+
+    await runAction(async () => {
+      await postAndRefresh(
+        `${API_BASE_URL}/pets/${petId}/friends/${friendId}/accept`,
+        {
+          method: "POST",
+          headers: buildAuthHeaders(authToken),
+        },
+        friendId
+      );
+    });
+  };
+
+  const handleRejectFriendship = async (friendId: number) => {
+    if (!petId || !authToken) {
+      return;
+    }
+
+    await runAction(async () => {
+      await postAndRefresh(
+        `${API_BASE_URL}/pets/${petId}/friends/${friendId}/reject`,
+        {
+          method: "POST",
+          headers: buildAuthHeaders(authToken),
+        },
+        friendId
+      );
+    });
+  };
+
   const handleSelectTarget = async (targetId: number) => {
     if (!petId || !authToken) {
       return;
     }
+
     setSelectedTargetId(targetId);
     try {
       setConversation(await readConversation(petId, authToken, targetId));
@@ -309,8 +380,7 @@ export default function SocialPage() {
     }
   };
 
-  const handleSendMessage = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleSendMessage = async () => {
     if (!petId || !authToken || !selectedCandidate || !draftMessage.trim()) {
       return;
     }
@@ -330,16 +400,6 @@ export default function SocialPage() {
       );
       setDraftMessage("");
     });
-  };
-
-  const renderStatus = (candidate: SocialCandidate) => {
-    if (candidate.friendshipStatus === "accepted") return "已是好友";
-    if (candidate.friendshipStatus === "pending" && candidate.direction === "incoming") {
-      return "待你处理";
-    }
-    if (candidate.friendshipStatus === "pending") return "已发请求";
-    if (candidate.friendshipStatus === "rejected") return "可重新发起";
-    return "未建立关系";
   };
 
   return (
@@ -387,252 +447,37 @@ export default function SocialPage() {
 
         {!isLoading && authToken && petId ? (
           <div className="grid gap-6 xl:grid-cols-[1.15fr_1fr]">
-            <section className="rounded-[28px] border border-orange-100 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-2xl font-semibold text-gray-900">可互动宠物</h2>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void runAction(async () => {
-                      await postAndRefresh(
-                        `${API_BASE_URL}/pets/${petId}/social/round`,
-                        {
-                          method: "POST",
-                          headers: buildAuthHeaders(authToken),
-                        }
-                      );
-                    })
-                  }
-                  disabled={isActing}
-                  className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
-                >
-                  {isActing ? "执行中..." : "来一轮社交"}
-                </button>
-              </div>
-
-              {statusMessage ? (
-                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                  {statusMessage}
-                </div>
-              ) : null}
-
-              <div className="mt-6 space-y-3">
-                {candidates.map((candidate) => (
-                  <div
-                    key={candidate.pet.id}
-                    className={`rounded-2xl border p-4 ${
-                      selectedTargetId === candidate.pet.id
-                        ? "border-amber-300 bg-white"
-                        : "border-orange-100 bg-white/80"
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => void handleSelectTarget(candidate.pet.id)}
-                      className="w-full text-left"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-lg font-semibold text-gray-900">
-                            {candidate.pet.petName}
-                          </p>
-                          <p className="mt-1 text-sm text-gray-500">
-                            {candidate.pet.species} · {candidate.pet.personality}
-                          </p>
-                        </div>
-                        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600">
-                          {renderStatus(candidate)}
-                        </span>
-                      </div>
-                    </button>
-
-                    <p className="mt-3 text-sm text-gray-600">
-                      {candidate.pet.specialTraits}
-                    </p>
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {candidate.canRequest ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void runAction(async () => {
-                              await postAndRefresh(
-                                `${API_BASE_URL}/pets/${petId}/friends/request`,
-                                {
-                                  method: "POST",
-                                  headers: buildAuthHeaders(authToken, true),
-                                  body: JSON.stringify({
-                                    targetPetId: candidate.pet.id,
-                                  }),
-                                },
-                                candidate.pet.id
-                              );
-                            })
-                          }
-                          disabled={isActing}
-                          className="rounded-lg bg-amber-100 px-4 py-2 text-sm font-medium text-amber-800 disabled:opacity-60"
-                        >
-                          发好友请求
-                        </button>
-                      ) : null}
-
-                      {candidate.friendshipStatus === "pending" &&
-                      candidate.direction === "incoming" ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void runAction(async () => {
-                                await postAndRefresh(
-                                  `${API_BASE_URL}/pets/${petId}/friends/${candidate.pet.id}/accept`,
-                                  {
-                                    method: "POST",
-                                    headers: buildAuthHeaders(authToken),
-                                  },
-                                  candidate.pet.id
-                                );
-                              })
-                            }
-                            disabled={isActing}
-                            className="rounded-lg bg-emerald-100 px-4 py-2 text-sm font-medium text-emerald-800 disabled:opacity-60"
-                          >
-                            接受
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void runAction(async () => {
-                                await postAndRefresh(
-                                  `${API_BASE_URL}/pets/${petId}/friends/${candidate.pet.id}/reject`,
-                                  {
-                                    method: "POST",
-                                    headers: buildAuthHeaders(authToken),
-                                  },
-                                  candidate.pet.id
-                                );
-                              })
-                            }
-                            disabled={isActing}
-                            className="rounded-lg bg-rose-100 px-4 py-2 text-sm font-medium text-rose-800 disabled:opacity-60"
-                          >
-                            拒绝
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
+            <SocialTargetsPanel
+              candidates={candidates}
+              selectedTargetId={selectedTargetId}
+              statusMessage={statusMessage}
+              isActing={isActing}
+              onRunSocialRound={() => void handleRunSocialRound()}
+              onSelectTarget={(targetId) => void handleSelectTarget(targetId)}
+              onRequestFriendship={(targetId) =>
+                void handleRequestFriendship(targetId)
+              }
+              onAcceptFriendship={(friendId) =>
+                void handleAcceptFriendship(friendId)
+              }
+              onRejectFriendship={(friendId) =>
+                void handleRejectFriendship(friendId)
+              }
+            />
 
             <div className="space-y-6">
-              <section className="rounded-[28px] border border-orange-100 bg-white p-6 shadow-sm">
-                <h2 className="text-xl font-semibold text-gray-900">当前对话</h2>
-                <div className="mt-4 rounded-2xl bg-gray-50 p-4">
-                  {conversation ? (
-                    <>
-                      <div className="max-h-80 space-y-3 overflow-y-auto">
-                        {conversation.messages.map((message) => (
-                          <div
-                            key={message.id}
-                            className={`flex ${
-                              message.senderPetId === petId
-                                ? "justify-end"
-                                : "justify-start"
-                            }`}
-                          >
-                            <div
-                              className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 ${
-                                message.senderPetId === petId
-                                  ? "bg-gray-900 text-white"
-                                  : "bg-white text-gray-700"
-                              }`}
-                            >
-                              <p className="mb-1 text-xs opacity-70">
-                                {message.senderPetId === petId
-                                  ? petName
-                                  : conversation.withPet.petName}
-                              </p>
-                              <p>{message.content}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {selectedCandidate?.canChat ? (
-                        <form onSubmit={handleSendMessage} className="mt-4 space-y-3">
-                          <input
-                            type="text"
-                            value={draftMessage}
-                            onChange={(event) => setDraftMessage(event.target.value)}
-                            placeholder={`对 ${conversation.withPet.petName} 说点什么`}
-                            disabled={isActing}
-                            className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-gray-500 disabled:opacity-60"
-                          />
-                          <button
-                            type="submit"
-                            disabled={isActing || !draftMessage.trim()}
-                            className="rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white disabled:opacity-60"
-                          >
-                            发送站内消息
-                          </button>
-                        </form>
-                      ) : null}
-                    </>
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-8 text-sm text-gray-500">
-                      {selectedCandidate
-                        ? "这两只宠物还没有形成对话记录，可以先发好友请求或执行一轮社交。"
-                        : "先从左侧选择一个目标。"}
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              <section className="rounded-[28px] border border-orange-100 bg-white p-6 shadow-sm">
-                <h2 className="text-xl font-semibold text-gray-900">最近社交记录</h2>
-                <div className="mt-4 space-y-3">
-                  {tasks.slice(0, 8).map((item) => (
-                    <div key={item.task.id} className="rounded-2xl bg-gray-50 px-4 py-4">
-                      <p className="text-sm font-medium text-gray-900">
-                        {item.counterpartPet?.petName || "未知对象"} · {item.task.taskType}
-                      </p>
-                      <p className="mt-2 text-sm text-gray-700">
-                        发起内容：{item.task.inputText}
-                      </p>
-                      {item.task.outputText ? (
-                        <p className="mt-2 text-sm text-gray-500">
-                          回复内容：{item.task.outputText}
-                        </p>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <section className="rounded-[28px] border border-orange-100 bg-white p-6 shadow-sm">
-                <h2 className="text-xl font-semibold text-gray-900">好友关系</h2>
-                <div className="mt-4 space-y-3">
-                  {friendships.map((item) => (
-                    <div
-                      key={`${item.friend.id}-${item.createdAt}`}
-                      className="rounded-2xl bg-gray-50 px-4 py-4"
-                    >
-                      <p className="text-sm font-medium text-gray-900">
-                        {item.friend.petName} · {item.status}
-                      </p>
-                      <p className="mt-2 text-sm text-gray-600">
-                        {item.friend.species} · {item.friend.personality}
-                      </p>
-                      {item.lastMessagePreview ? (
-                        <p className="mt-2 text-sm text-gray-500">
-                          最近一条：{item.lastMessagePreview}
-                        </p>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              </section>
+              <SocialConversationPanel
+                petId={petId}
+                petName={petName}
+                selectedCandidate={selectedCandidate}
+                conversation={conversation}
+                draftMessage={draftMessage}
+                isActing={isActing}
+                onDraftMessageChange={setDraftMessage}
+                onSendMessage={() => void handleSendMessage()}
+              />
+              <SocialTaskHistoryPanel tasks={tasks} />
+              <SocialFriendshipsPanel friendships={friendships} />
             </div>
           </div>
         ) : null}
