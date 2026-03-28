@@ -8,15 +8,16 @@ import {
   HOME_SCENE_OBJECTS,
 } from "../lib/home-scene";
 import {
+  buildHomeStatusFreshnessText,
   createHomePageNotice,
   createHomeStatusSyncNotice,
   createPetSelectionSceneNotice,
   createSceneActionErrorNotice,
   createSceneActionSuccessNotice,
   createSceneTargetNotice,
-  getNoticeAutoDismissMs,
   createStatusPanelErrorNotice,
   createStatusPanelSuccessNotice,
+  getNoticeAutoDismissMs,
 } from "../lib/home-scene-notice";
 import { PetStatusPanel, type PetStatus } from "../lib/PetStatusPanel";
 
@@ -89,6 +90,14 @@ runTest("buildHomeSceneActionMessage falls back when backend detail is absent", 
 runTest("home scene notices keep page, scene, and panel responsibilities separate", () => {
   const pageNotice = createHomePageNotice("请先登录。", "info");
   const statusSyncNotice = createHomeStatusSyncNotice();
+  const freshSyncText = buildHomeStatusFreshnessText(
+    new Date("2026-03-29T09:30:00").getTime(),
+    new Date("2026-03-29T09:30:10").getTime()
+  );
+  const minuteSyncText = buildHomeStatusFreshnessText(
+    new Date("2026-03-29T09:25:00").getTime(),
+    new Date("2026-03-29T09:30:10").getTime()
+  );
   const petSceneNotice = createPetSelectionSceneNotice();
   const bedSceneNotice = createSceneTargetNotice("bed");
   const sceneSuccessNotice = createSceneActionSuccessNotice("feed", "已喂食。");
@@ -106,6 +115,8 @@ runTest("home scene notices keep page, scene, and panel responsibilities separat
     tone: "warning",
     text: "状态同步暂时失败，当前显示的数值可能不是最新。",
   });
+  assert.equal(freshSyncText, "最近一次同步：刚刚（09:30:00）");
+  assert.equal(minuteSyncText, "最近一次同步：5 分钟前（09:25:00）");
   assert.equal(petSceneNotice.scope, "scene");
   assert.equal(petSceneNotice.tone, "info");
   assert.equal(

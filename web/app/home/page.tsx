@@ -30,6 +30,7 @@ import {
   type HomeSceneObjectMeta,
 } from "../../lib/home-scene";
 import {
+  buildHomeStatusFreshnessText,
   createHomePageNotice,
   createHomeStatusSyncNotice,
   createPetSelectionSceneNotice,
@@ -88,7 +89,7 @@ function getObjectBadgeClass(kind: HomeSceneObjectMeta["interactionKind"]) {
 }
 
 type StatusFetchResult =
-  | { kind: "success"; status: PetStatus }
+  | { kind: "success" }
   | { kind: "unauthorized" }
   | { kind: "failed" };
 
@@ -103,10 +104,12 @@ export default function HomeScenePage() {
   const [sceneNotice, setSceneNotice] = useState<HomeSceneNotice | null>(null);
   const [statusSyncNotice, setStatusSyncNotice] =
     useState<HomeStatusSyncNotice | null>(null);
+  const [lastStatusSyncedAt, setLastStatusSyncedAt] = useState<number | null>(null);
 
   const applyStatusSnapshot = (nextStatus: PetStatus) => {
     setStatus(nextStatus);
     setStatusSyncNotice(null);
+    setLastStatusSyncedAt(Date.now());
   };
 
   const fetchPetStatus = useEffectEvent(async (
@@ -126,6 +129,7 @@ export default function HomeScenePage() {
         setPet(null);
         setStatus(null);
         setStatusSyncNotice(null);
+        setLastStatusSyncedAt(null);
         setPageStatusNotice(createHomePageNotice(LOGIN_REQUIRED_MESSAGE, "info"));
         return { kind: "unauthorized" };
       }
@@ -140,7 +144,7 @@ export default function HomeScenePage() {
       }
 
       applyStatusSnapshot(data);
-      return { kind: "success", status: data };
+      return { kind: "success" };
     } catch {
       return { kind: "failed" };
     }
@@ -272,6 +276,7 @@ export default function HomeScenePage() {
   useEffect(() => {
     if (!pet || !authToken) {
       setStatusSyncNotice(null);
+      setLastStatusSyncedAt(null);
       return;
     }
 
@@ -460,6 +465,11 @@ export default function HomeScenePage() {
                   <p className="text-sm font-medium text-amber-700">
                     当前宠物：{pet.petName}
                   </p>
+                  {lastStatusSyncedAt ? (
+                    <p className="mt-2 text-xs text-gray-500">
+                      {buildHomeStatusFreshnessText(lastStatusSyncedAt)}
+                    </p>
+                  ) : null}
                   <h2 className="mt-1 text-2xl font-semibold text-gray-900">
                     俯视角家庭地图
                   </h2>

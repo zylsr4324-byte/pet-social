@@ -169,6 +169,31 @@ export function getHomeStatusSyncNoticeClassName(
     : "border-amber-200 bg-amber-50/80 text-amber-800";
 }
 
+function formatClockTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  const pad = (value: number) => value.toString().padStart(2, "0");
+
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+export function buildHomeStatusFreshnessText(
+  lastSyncedAt: number,
+  now: number = Date.now()
+): string {
+  const elapsedSeconds = Math.max(0, Math.floor((now - lastSyncedAt) / 1000));
+  let relativeText = "刚刚";
+
+  if (elapsedSeconds >= 3600) {
+    relativeText = `${Math.floor(elapsedSeconds / 3600)} 小时前`;
+  } else if (elapsedSeconds >= 60) {
+    relativeText = `${Math.floor(elapsedSeconds / 60)} 分钟前`;
+  } else if (elapsedSeconds >= 15) {
+    relativeText = `${elapsedSeconds} 秒前`;
+  }
+
+  return `最近一次同步：${relativeText}（${formatClockTime(lastSyncedAt)}）`;
+}
+
 export function getNoticeAutoDismissMs(
   scope: HomeNoticeScope
 ): number | null {
