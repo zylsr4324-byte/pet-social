@@ -8,6 +8,7 @@ services:
       - "8000:8000"
     volumes:
       - ./api:/app
+    env_file: ./api/.env
     environment:
       APP_NAME: Pet Agent Social API
       APP_ENV: development
