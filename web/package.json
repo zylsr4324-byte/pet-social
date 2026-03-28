@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:social": "tsc -p tsconfig.test.json && node .test-dist/tests/social-state.test.js"
   },
   "dependencies": {
     "next": "16.2.0",
