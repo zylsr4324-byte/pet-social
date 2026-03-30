@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -85,6 +86,7 @@ class User(Base):
         String(320), nullable=False, unique=True, index=True
     )
     password_hash: Mapped[str] = mapped_column(String(500), nullable=False)
+    coins: Mapped[int] = mapped_column(Integer, nullable=False, default=500)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -222,4 +224,74 @@ class PetDailyQuota(Base):
     llm_calls_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     social_initiations_used: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
+    )
+
+
+class FurnitureTemplate(Base):
+    __tablename__ = "furniture_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    category: Mapped[str] = mapped_column(String(50), nullable=False)  # food/water/toy/bed/decoration
+    width: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    height: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    sprite_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    interaction_action: Mapped[str | None] = mapped_column(String(50), nullable=True)  # feed/drink/play/bed/None
+    effects: Mapped[str] = mapped_column(String(500), nullable=False, default="{}")  # JSON
+
+
+class UserFurnitureInventory(Base):
+    __tablename__ = "user_furniture_inventory"
+    __table_args__ = (
+        CheckConstraint("quantity >= 0", name="check_inventory_quantity_non_negative"),
+        UniqueConstraint("user_id", "template_id", name="uq_user_inventory_template"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    template_id: Mapped[int] = mapped_column(
+        ForeignKey("furniture_templates.id"), nullable=False, index=True
+    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    purchased_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class PlacedFurniture(Base):
+    __tablename__ = "placed_furniture"
+    __table_args__ = (
+        CheckConstraint(
+            "room IN ('living', 'bedroom', 'kitchen')",
+            name="check_placed_furniture_room",
+        ),
+        CheckConstraint(
+            "rotation IN (0, 90, 180, 270)",
+            name="check_placed_furniture_rotation",
+        ),
+        UniqueConstraint(
+            "pet_id",
+            "room",
+            "tile_x",
+            "tile_y",
+            name="uq_placed_furniture_position",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    pet_id: Mapped[int] = mapped_column(
+        ForeignKey("pets.id"), nullable=False, index=True
+    )
+    template_id: Mapped[int] = mapped_column(
+        ForeignKey("furniture_templates.id"), nullable=False
+    )
+    room: Mapped[str] = mapped_column(String(20), nullable=False, default="living")
+    tile_x: Mapped[int] = mapped_column(Integer, nullable=False)
+    tile_y: Mapped[int] = mapped_column(Integer, nullable=False)
+    rotation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    flipped: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    placed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

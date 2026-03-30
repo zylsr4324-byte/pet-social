@@ -18,6 +18,7 @@ def build_user_response(user: User) -> UserResponse:
     return UserResponse(
         id=user.id,
         email=user.email,
+        coins=user.coins,
         created_at=user.created_at,
     )
 

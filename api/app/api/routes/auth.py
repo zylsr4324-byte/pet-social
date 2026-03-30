@@ -3,7 +3,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import AuthSession, User
+from app.models import AuthSession, FurnitureTemplate, User, UserFurnitureInventory
 from app.schemas import (
     AuthLoginRequest,
     AuthLoginResponse,
@@ -23,6 +23,7 @@ from app.services.auth import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+DEFAULT_GIFT_ACTIONS = {"feed", "drink", "play", "bed"}
 
 
 @router.post(
@@ -49,6 +50,23 @@ def register_user(
 
     try:
         db.add(user)
+        db.flush()
+
+        default_templates = (
+            db.query(FurnitureTemplate)
+            .filter(FurnitureTemplate.interaction_action.in_(DEFAULT_GIFT_ACTIONS))
+            .all()
+        )
+        db.add_all(
+            [
+                UserFurnitureInventory(
+                    user_id=user.id,
+                    template_id=template.id,
+                    quantity=1,
+                )
+                for template in default_templates
+            ]
+        )
         db.commit()
         db.refresh(user)
     except SQLAlchemyError as error:

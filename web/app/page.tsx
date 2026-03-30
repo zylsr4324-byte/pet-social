@@ -36,6 +36,13 @@ export default function Home() {
           </Link>
 
           <Link
+            href="/my-pets"
+            className="inline-flex rounded-lg border border-violet-300 bg-violet-50 px-5 py-3 text-sm font-medium text-violet-800 transition hover:bg-violet-100"
+          >
+            宠物管理
+          </Link>
+
+          <Link
             href="/social"
             className="inline-flex rounded-lg border border-amber-300 bg-amber-50 px-5 py-3 text-sm font-medium text-amber-800 transition hover:bg-amber-100"
           >
@@ -54,6 +61,13 @@ export default function Home() {
             className="inline-flex rounded-lg border border-sky-300 bg-sky-50 px-5 py-3 text-sm font-medium text-sky-800 transition hover:bg-sky-100"
           >
             家庭场景
+          </Link>
+
+          <Link
+            href="/shop"
+            className="inline-flex rounded-lg border border-orange-300 bg-orange-50 px-5 py-3 text-sm font-medium text-orange-800 transition hover:bg-orange-100"
+          >
+            家具商店
           </Link>
         </div>
       </div>

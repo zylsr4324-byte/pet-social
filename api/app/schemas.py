@@ -66,6 +66,7 @@ class PetChatResponse(BaseModel):
 class UserResponse(BaseModel):
     id: int
     email: str
+    coins: int
     created_at: datetime
 
 
@@ -235,3 +236,86 @@ class SocialRoundResponse(BaseModel):
     replyMessage: SocialMessageResponse
     conversationId: int
     targetPet: PetResponse
+
+
+# ── Furniture ────────────────────────────────────────────────
+
+class FurnitureTemplateResponse(BaseModel):
+    id: int
+    name: str
+    category: str
+    width: int
+    height: int
+    sprite_key: str
+    interaction_action: str | None
+    effects: str
+
+
+class FurnitureTemplateListResponse(BaseModel):
+    templates: list[FurnitureTemplateResponse]
+
+
+class UserFurnitureInventoryResponse(BaseModel):
+    id: int
+    user_id: int
+    template: FurnitureTemplateResponse
+    quantity: int
+    purchased_at: datetime
+
+
+class PlacedFurnitureResponse(BaseModel):
+    id: int
+    pet_id: int
+    template: FurnitureTemplateResponse
+    room: str
+    tile_x: int
+    tile_y: int
+    rotation: int
+    flipped: bool
+    placed_at: datetime
+
+
+class PlacedFurnitureListResponse(BaseModel):
+    items: list[PlacedFurnitureResponse]
+
+
+class PlacedFurnitureCreate(BaseModel):
+    template_id: int
+    room: str = "living"
+    tile_x: int
+    tile_y: int
+    rotation: int = 0
+    flipped: bool = False
+
+
+class PlacedFurnitureUpdate(BaseModel):
+    room: str | None = None
+    tile_x: int | None = None
+    tile_y: int | None = None
+    rotation: int | None = None
+    flipped: bool | None = None
+
+
+class ShopItemResponse(BaseModel):
+    template: FurnitureTemplateResponse
+    price: int
+    is_gifted: bool
+    owned_quantity: int
+    can_purchase: bool
+
+
+class ShopCatalogResponse(BaseModel):
+    coins: int
+    items: list[ShopItemResponse]
+    inventory: list[UserFurnitureInventoryResponse]
+
+
+class ShopPurchaseRequest(BaseModel):
+    template_id: int
+
+
+class ShopPurchaseResponse(BaseModel):
+    message: str
+    coins: int
+    item: ShopItemResponse
+    inventory_item: UserFurnitureInventoryResponse

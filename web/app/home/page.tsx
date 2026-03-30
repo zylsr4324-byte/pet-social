@@ -31,14 +31,22 @@ import {
   clearStoredPetId,
   getResponseErrorMessage,
   isPetApiResponse,
+  isPetListResponse,
   readStoredPetId,
   recoverLatestPetForCurrentUser,
   type ApiPet,
 } from "../../lib/pet";
 import type { SceneAction } from "../../lib/PetHomeScene";
 import {
+  moveFurniture,
+  type PlacedFurnitureResponse,
+  isPlacedFurnitureListResponse,
+} from "../../lib/furniture";
+import {
+  HOME_SCENE_ROOMS,
   HOME_PET_INTERACTION_MENU_ITEMS,
   HOME_SCENE_OBJECTS,
+  type HomeRoomId,
   type HomeSceneObjectAction,
   type HomeSceneObjectMeta,
   type PetInteractionMenuAction,
@@ -115,10 +123,23 @@ type StatusFetchResult =
   | { kind: "unauthorized" }
   | { kind: "failed" };
 
+function clonePlacedFurnitureItems(items: PlacedFurnitureResponse[]) {
+  return items.map((item) => ({
+    ...item,
+    template: { ...item.template },
+  }));
+}
+
 export default function HomeScenePage() {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [pet, setPet] = useState<ApiPet | null>(null);
+  const [pets, setPets] = useState<ApiPet[]>([]);
+  const [petStatuses, setPetStatuses] = useState<Map<number, PetStatus>>(new Map());
   const [status, setStatus] = useState<PetStatus | null>(null);
+  const [placedFurniture, setPlacedFurniture] = useState<PlacedFurnitureResponse[]>([]);
+  const [currentRoom, setCurrentRoom] = useState<HomeRoomId>("living");
+  const [isFurnitureEditMode, setIsFurnitureEditMode] = useState(false);
+  const [isFurnitureLayoutSaving, setIsFurnitureLayoutSaving] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isPetMenuOpen, setIsPetMenuOpen] = useState(false);
   const [activePetPanel, setActivePetPanel] = useState<
@@ -142,8 +163,11 @@ export default function HomeScenePage() {
     message: string;
   } | null>(null);
   const chatMessagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const furnitureBaselineRef = useRef<PlacedFurnitureResponse[] | null>(null);
   const isPetPanelOpen = activePetPanel === "status";
   const isHomeChatOpen = activePetPanel === "chat";
+  const currentRoomMeta =
+    HOME_SCENE_ROOMS.find((room) => room.id === currentRoom) ?? HOME_SCENE_ROOMS[0];
   const statusDisplayPolicy = getHomeStatusDisplayPolicy(
     status,
     statusViewState,
@@ -213,6 +237,25 @@ export default function HomeScenePage() {
       return { kind: "success" };
     } catch {
       return { kind: "failed" };
+    }
+  });
+
+  const fetchPlacedFurniture = useEffectEvent(async (
+    activePetId: number,
+    token: string
+  ) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/pets/${activePetId}/furniture`, {
+        cache: "no-store",
+        headers: buildAuthHeaders(token),
+      });
+      if (!response.ok) return;
+      const data: unknown = await response.json();
+      if (isPlacedFurnitureListResponse(data)) {
+        setPlacedFurniture(data.items);
+      }
+    } catch {
+      // ignore
     }
   });
 
@@ -501,6 +544,38 @@ export default function HomeScenePage() {
           setStatusSyncNotice(null);
           setStatusViewState("unavailable");
         }
+        void fetchPlacedFurniture(petData.pet.id, storedAuthToken);
+
+        // 加载所有宠物列表及各自状态
+        try {
+          const allPetsRes = await fetch(`${API_BASE_URL}/pets`, {
+            cache: "no-store",
+            headers: buildAuthHeaders(storedAuthToken),
+          });
+          if (allPetsRes.ok && isMounted) {
+            const allPetsData: unknown = await allPetsRes.json();
+            if (isPetListResponse(allPetsData)) {
+              setPets(allPetsData.pets);
+              // 并发获取所有宠物状态
+              const statusMap = new Map<number, PetStatus>();
+              await Promise.all(
+                allPetsData.pets.map(async (p) => {
+                  try {
+                    const sRes = await fetch(`${API_BASE_URL}/pets/${p.id}/status`, {
+                      cache: "no-store",
+                      headers: buildAuthHeaders(storedAuthToken),
+                    });
+                    if (sRes.ok) {
+                      const sData: unknown = await sRes.json();
+                      if (isPetStatus(sData)) statusMap.set(p.id, sData);
+                    }
+                  } catch { /* ignore */ }
+                })
+              );
+              if (isMounted) setPetStatuses(statusMap);
+            }
+          }
+        } catch { /* ignore */ }
       } catch {
         if (isMounted) {
           setPageStatusNotice(createHomePageNotice(HOME_LOAD_FAILURE_MESSAGE));
@@ -521,6 +596,9 @@ export default function HomeScenePage() {
 
   useEffect(() => {
     if (!pet || !authToken) {
+      setIsFurnitureEditMode(false);
+      setIsFurnitureLayoutSaving(false);
+      furnitureBaselineRef.current = null;
       setIsPetMenuOpen(false);
       setActivePetPanel(null);
       setStatusSyncNotice(null);
@@ -606,8 +684,116 @@ export default function HomeScenePage() {
     window.location.reload();
   };
 
+  const handleFurnitureDraftChange = (nextFurniture: PlacedFurnitureResponse[]) => {
+    setPlacedFurniture(clonePlacedFurnitureItems(nextFurniture));
+  };
+
+  const handleFurnitureEditError = (message: string) => {
+    setSceneNotice({
+      scope: "scene",
+      tone: "error",
+      text: message,
+    });
+  };
+
+  const saveFurnitureLayout = async () => {
+    if (!pet || !authToken) {
+      return false;
+    }
+
+    const baseline = furnitureBaselineRef.current;
+    if (!baseline) {
+      setIsFurnitureEditMode(false);
+      return true;
+    }
+
+    const changedItems = placedFurniture.filter((item) => {
+      const previous = baseline.find((candidate) => candidate.id === item.id);
+      if (!previous) {
+        return true;
+      }
+      return (
+        previous.room !== item.room ||
+        previous.tile_x !== item.tile_x ||
+        previous.tile_y !== item.tile_y ||
+        previous.rotation !== item.rotation ||
+        previous.flipped !== item.flipped
+      );
+    });
+
+    if (changedItems.length === 0) {
+      furnitureBaselineRef.current = null;
+      setIsFurnitureEditMode(false);
+      return true;
+    }
+
+    setIsFurnitureLayoutSaving(true);
+
+    try {
+      const savedItems = await Promise.all(
+        changedItems.map((item) =>
+          moveFurniture(
+            pet.id,
+            authToken,
+            item.id,
+            item.room,
+            item.tile_x,
+            item.tile_y,
+            item.rotation,
+            item.flipped
+          )
+        )
+      );
+
+      const savedItemMap = new Map(savedItems.map((item) => [item.id, item]));
+      setPlacedFurniture((currentItems) =>
+        currentItems.map((item) => savedItemMap.get(item.id) ?? item)
+      );
+      furnitureBaselineRef.current = null;
+      setIsFurnitureEditMode(false);
+      setSceneNotice({
+        scope: "scene",
+        tone: "success",
+        text: "家具布局已自动保存。",
+      });
+      return true;
+    } catch (error) {
+      setSceneNotice({
+        scope: "scene",
+        tone: "error",
+        text: error instanceof Error ? error.message : "保存家具布局失败，请稍后再试。",
+      });
+      return false;
+    } finally {
+      setIsFurnitureLayoutSaving(false);
+    }
+  };
+
+  const handleFurnitureEditToggle = async () => {
+    if (!pet || !authToken || isFurnitureLayoutSaving) {
+      return;
+    }
+
+    if (!isFurnitureEditMode) {
+      furnitureBaselineRef.current = clonePlacedFurnitureItems(placedFurniture);
+      setIsFurnitureEditMode(true);
+      setSceneNotice({
+        scope: "scene",
+        tone: "info",
+        text: "已进入布置模式。拖拽家具会吸附网格，双击可旋转，退出时自动保存。",
+      });
+      return;
+    }
+
+    await saveFurnitureLayout();
+  };
+
   const handleSceneAction = async (action: SceneAction) => {
     if (!pet || !authToken) {
+      return;
+    }
+
+    if (isFurnitureEditMode && action !== "pet") {
       return;
     }
 
@@ -715,6 +901,9 @@ export default function HomeScenePage() {
           <Link href="/social" className="transition hover:text-gray-800">
             站内社交
           </Link>
+          <Link href="/home/furniture" className="transition hover:text-gray-800">
+            家具布置
+          </Link>
         </div>
 
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
@@ -803,13 +992,45 @@ export default function HomeScenePage() {
               </div>
 
               <PetHomeScene
-                petName={pet.petName}
-                petSpecies={pet.species}
-                petStatus={status}
+                currentRoom={currentRoom}
+                isEditMode={isFurnitureEditMode}
+                pets={pets.length > 0 ? pets.map((p) => ({
+                  id: p.id,
+                  petName: p.petName,
+                  petSpecies: p.species,
+                  petStatus: petStatuses.get(p.id) ?? null,
+                })) : [{
+                  id: pet.id,
+                  petName: pet.petName,
+                  petSpecies: pet.species,
+                  petStatus: status,
+                }]}
+                placedFurniture={placedFurniture}
+                onPlacedFurnitureChange={handleFurnitureDraftChange}
+                onEditError={handleFurnitureEditError}
                 onAction={(action) => {
                   void handleSceneAction(action);
                 }}
               />
+
+              <div className="mt-4 rounded-2xl bg-white/85 p-3 shadow-sm">
+                <div className="flex flex-wrap gap-2">
+                  {HOME_SCENE_ROOMS.map((room) => (
+                    <button
+                      key={room.id}
+                      type="button"
+                      onClick={() => setCurrentRoom(room.id)}
+                      className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                        room.id === currentRoom
+                          ? "bg-amber-600 text-white shadow-sm"
+                          : "bg-orange-50 text-amber-800 hover:bg-orange-100"
+                      }`}
+                    >
+                      {room.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {SCENE_OBJECT_ENTRIES.map(([action, item]) => (
@@ -862,6 +1083,24 @@ export default function HomeScenePage() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
+                      onClick={() => {
+                        void handleFurnitureEditToggle();
+                      }}
+                      disabled={isFurnitureLayoutSaving}
+                      className={`rounded-lg px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                        isFurnitureEditMode
+                          ? "bg-amber-600 text-white hover:bg-amber-500"
+                          : "border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                      }`}
+                    >
+                      {isFurnitureLayoutSaving
+                        ? "保存中..."
+                        : isFurnitureEditMode
+                          ? "退出并保存布置"
+                          : "进入布置模式"}
+                    </button>
+                    <button
+                      type="button"
                       onClick={() =>
                         setActivePetPanel((currentPanel) =>
                           currentPanel === "status" ? null : "status"
@@ -890,7 +1129,9 @@ export default function HomeScenePage() {
                 </div>
 
                 <div className="mt-4 rounded-2xl bg-gray-50 p-4 text-sm leading-7 text-gray-600">
-                  <p>房间布局：左上客厅，右上厨房，右下卧室。</p>
+                  <p>
+                    房间切换：通过场景下方标签在客厅、卧室、厨房之间切换，当前显示 {currentRoomMeta.label}。
+                  </p>
                   <p>
                     行为规则：饥饿优先找食盆，口渴优先找水盆，疲惫优先找床，否则在房间里巡视。
                   </p>

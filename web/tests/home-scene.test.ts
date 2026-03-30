@@ -6,6 +6,8 @@ import {
   buildHomeSceneActionMessage,
   getHomePetSpriteSpec,
   getHomeSceneBehavior,
+  getRoomConfig,
+  HOME_SCENE_ROOMS,
   HOME_PET_INTERACTION_MENU_ITEMS,
   HOME_SCENE_OBJECTS,
 } from "../lib/home-scene";
@@ -48,20 +50,51 @@ function runTest(name: string, assertion: () => void) {
 runTest("getHomeSceneBehavior handles missing status without crashing", () => {
   const behavior = getHomeSceneBehavior(null);
 
-  assert.equal(behavior.state, "idle");
-  assert.equal(behavior.target, "feed");
-  assert.equal(behavior.summary, "状态读取中");
+  assert.equal(behavior.state, "wandering");
+  assert.equal(behavior.target, null);
+  assert.equal(behavior.summary, "\u72b6\u6001\u8bfb\u53d6\u4e2d");
 });
 
 runTest("getHomeSceneBehavior keeps the intended priority order", () => {
   assert.equal(
-    getHomeSceneBehavior(createStatus({ fullness: 40, hydration: 10, energy: 10 }))
-      .target,
-    "feed"
+    getHomeSceneBehavior(createStatus({ fullness: 10, hydration: 10, energy: 5 })).state,
+    "seeking_food"
   );
-  assert.equal(getHomeSceneBehavior(createStatus({ hydration: 40 })).target, "drink");
-  assert.equal(getHomeSceneBehavior(createStatus({ energy: 30 })).target, "bed");
-  assert.equal(getHomeSceneBehavior(createStatus()).target, "play");
+  assert.equal(
+    getHomeSceneBehavior(createStatus({ fullness: 45, hydration: 10, energy: 5 })).state,
+    "seeking_water"
+  );
+  assert.equal(
+    getHomeSceneBehavior(createStatus({ fullness: 45, hydration: 45, energy: 5 })).state,
+    "sleeping"
+  );
+  assert.equal(
+    getHomeSceneBehavior(createStatus({ fullness: 45, hydration: 45, energy: 20 })).state,
+    "seeking_rest"
+  );
+});
+
+runTest("getHomeSceneBehavior uses room context for grooming, play, and social", () => {
+  const grooming = getHomeSceneBehavior(
+    createStatus({ cleanliness: 20, affection: 40 }),
+    { hasToy: true, hasOtherPets: true }
+  );
+  const playing = getHomeSceneBehavior(createStatus({ affection: 40 }), {
+    hasToy: true,
+  });
+  const social = getHomeSceneBehavior(createStatus(), {
+    hasOtherPets: true,
+  });
+  const wandering = getHomeSceneBehavior(createStatus());
+
+  assert.equal(grooming.state, "grooming");
+  assert.equal(grooming.target, null);
+  assert.equal(playing.state, "playing");
+  assert.equal(playing.target, "play");
+  assert.equal(social.state, "social");
+  assert.equal(social.target, null);
+  assert.equal(wandering.state, "wandering");
+  assert.equal(wandering.target, null);
 });
 
 runTest("HOME_SCENE_OBJECTS separates instant actions from target points", () => {
@@ -75,6 +108,19 @@ runTest("HOME_SCENE_OBJECTS separates instant actions from target points", () =>
   assert.deepEqual(instantEntries, ["feed", "drink", "play"]);
   assert.deepEqual(targetEntries, ["bed"]);
   assert.equal(HOME_SCENE_OBJECTS.bed.badgeLabel, "休息目标");
+});
+
+runTest("HOME_SCENE_ROOMS keeps the redesigned room order and metadata", () => {
+  assert.deepEqual(
+    HOME_SCENE_ROOMS.map((room) => room.id),
+    ["living", "bedroom", "kitchen"]
+  );
+  assert.equal(getRoomConfig("living").label, "客厅");
+  assert.equal(getRoomConfig("bedroom").floorStyle, "carpet");
+  assert.equal(getRoomConfig("kitchen").floorStyle, "tile");
+  assert.equal(HOME_SCENE_OBJECTS.feed.room, "kitchen");
+  assert.equal(HOME_SCENE_OBJECTS.play.room, "living");
+  assert.equal(HOME_SCENE_OBJECTS.bed.room, "bedroom");
 });
 
 runTest("home scene pet sprite changes by species", () => {
@@ -205,7 +251,10 @@ runTest("home scene notices keep page, scene, and panel responsibilities separat
 runTest("pet status view distinguishes loading and unavailable empty states", () => {
   assert.equal(getHomeStatusSummaryText(null, "loading"), "状态读取中");
   assert.equal(getHomeStatusSummaryText(null, "unavailable"), "状态暂不可用");
-  assert.equal(getHomeStatusSummaryText(createStatus(), "ready"), "Idle：宠物会在房间里随意巡视");
+  assert.equal(
+    getHomeStatusSummaryText(createStatus(), "ready"),
+    "Wandering\uFF1A\u5BA0\u7269\u4F1A\u5728\u623F\u95F4\u91CC\u6CBF\u8DEF\u5F84\u968F\u673A\u6E38\u8D70"
+  );
   assert.deepEqual(getHomeStatusDisplayPolicy(createStatus(), "ready", false), {
     showSummaryBadge: true,
     showSyncNotice: true,

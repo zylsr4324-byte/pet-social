@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   buildAuthHeaders,
   clearStoredAuth,
@@ -10,7 +11,6 @@ import {
 import {
   API_BASE_URL,
   LOGIN_REQUIRED_MESSAGE,
-  RESTORE_PET_FAILURE_MESSAGE,
 } from "../../lib/constants";
 import {
   EMPTY_PET,
@@ -19,9 +19,7 @@ import {
   getResponseErrorMessage,
   isPetApiResponse,
   mapApiPetToProfile,
-  readLegacyPetProfile,
   readStoredPetId,
-  recoverLatestPetForCurrentUser,
   writeStoredPetId,
   type PetProfile,
 } from "../../lib/pet";
@@ -34,7 +32,10 @@ import {
   getTemperamentTag,
 } from "../../lib/pet-display";
 
-export default function CreatePetPage() {
+function CreatePetPageContent() {
+  const searchParams = useSearchParams();
+  const forceNew = searchParams.get("mode") === "new";
+  const editId = searchParams.get("id") ? Number(searchParams.get("id")) : null;
   const [pet, setPet] = useState<PetProfile>(EMPTY_PET);
   const [petId, setPetId] = useState<number | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -55,206 +56,71 @@ export default function CreatePetPage() {
         if (!storedAuthToken) {
           if (isMounted) {
             setAuthToken(null);
-            setFeedback({
-              type: "info",
-              message: LOGIN_REQUIRED_MESSAGE,
-            });
+            setFeedback({ type: "info", message: LOGIN_REQUIRED_MESSAGE });
           }
           return;
         }
 
-        if (isMounted) {
-          setAuthToken(storedAuthToken);
+        if (isMounted) setAuthToken(storedAuthToken);
+
+        // mode=new：强制空表单，直接新建
+        if (forceNew) {
+          if (isMounted) { setPetId(null); setPet(EMPTY_PET); setFeedback(null); }
+          return;
         }
 
-        const restoreLatestPet = async () => {
-          const result = await recoverLatestPetForCurrentUser(
-            storedAuthToken,
-            RESTORE_PET_FAILURE_MESSAGE
-          );
+        // id=xxx 或 storedPetId：加载指定宠物
+        const targetId = editId ?? readStoredPetId();
 
-          if (result.unauthorized) {
-            clearStoredAuth();
-
-            if (isMounted) {
-              setAuthToken(null);
-              setPetId(null);
-              setPet(EMPTY_PET);
-              setFeedback({
-                type: "info",
-                message: LOGIN_REQUIRED_MESSAGE,
-              });
-            }
-
-            return { restored: false, blocked: true };
-          }
-
-          if (result.errorMessage) {
-            if (isMounted) {
-              setFeedback({
-                type: "error",
-                message: result.errorMessage,
-              });
-            }
-
-            return { restored: false, blocked: true };
-          }
-
-          if (!result.pet) {
-            return { restored: false, blocked: false };
-          }
-
-          const restoredPet = mapApiPetToProfile(result.pet);
-
-          if (isMounted) {
-            setPetId(result.pet.id);
-            setPet(restoredPet);
-            writeStoredPetId(result.pet.id);
-            clearLegacyPetProfile();
-            setFeedback({
-              type: "info",
-              message: `已为你恢复最近创建的${restoredPet.petName || "宠物"}资料。`,
-            });
-          }
-
-          return { restored: true, blocked: false };
-        };
-
-        const storedPetId = readStoredPetId();
-
-        if (storedPetId) {
-          const response = await fetch(`${API_BASE_URL}/pets/${storedPetId}`, {
+        if (targetId) {
+          const response = await fetch(`${API_BASE_URL}/pets/${targetId}`, {
             cache: "no-store",
             headers: buildAuthHeaders(storedAuthToken),
           });
 
           if (response.status === 401) {
             clearStoredAuth();
-
-            if (isMounted) {
-              setAuthToken(null);
-              setFeedback({
-                type: "info",
-                message: LOGIN_REQUIRED_MESSAGE,
-              });
-            }
-
-            return;
-          }
-
-          if (response.ok) {
-            const data: unknown = await response.json();
-
-            if (isMounted && isPetApiResponse(data)) {
-              const loadedPet = mapApiPetToProfile(data.pet);
-
-                setPetId(data.pet.id);
-                setPet(loadedPet);
-                writeStoredPetId(data.pet.id);
-                clearLegacyPetProfile();
-              setFeedback({
-                type: "info",
-                message: `已为你加载${loadedPet.petName || "宠物"}的资料，可以直接继续编辑。`,
-              });
-            } else if (isMounted) {
-              setPetId(null);
-              setPet(EMPTY_PET);
-              setFeedback({
-                type: "info",
-                message: "后端返回的数据格式不太对，请稍后再试。",
-              });
-            }
-
+            if (isMounted) { setAuthToken(null); setFeedback({ type: "info", message: LOGIN_REQUIRED_MESSAGE }); }
             return;
           }
 
           if (response.status === 404) {
             clearStoredPetId();
-
-            const restoreResult = await restoreLatestPet();
-
-            if (restoreResult.restored || restoreResult.blocked) {
-              return;
-            }
-
-            const legacyPet = readLegacyPetProfile();
-
-            if (isMounted && legacyPet) {
-              setPetId(null);
-              setPet(legacyPet);
-              setFeedback({
-                type: "info",
-                message:
-                  "已读取你之前保存在本地的宠物资料，重新保存后会同步到后端。",
-              });
-            } else if (isMounted) {
-              setPetId(null);
-              setPet(EMPTY_PET);
-              setFeedback({
-                type: "info",
-                message: "之前保存的宠物资料找不到了，请重新填写后再保存。",
-              });
-            }
-
+            if (isMounted) { setPetId(null); setPet(EMPTY_PET); setFeedback({ type: "info", message: "找不到该宠物，请重新创建。" }); }
             return;
           }
 
-          const errorMessage = await getResponseErrorMessage(
-            response,
-            "加载宠物资料失败，请稍后再试。"
-          );
-
-          if (isMounted) {
-            setFeedback({
-              type: "error",
-              message: errorMessage,
-            });
+          if (!response.ok) {
+            const errorMessage = await getResponseErrorMessage(response, "加载宠物资料失败，请稍后再试。");
+            if (isMounted) setFeedback({ type: "error", message: errorMessage });
+            return;
           }
 
+          const data: unknown = await response.json();
+          if (isPetApiResponse(data) && isMounted) {
+            const loadedPet = mapApiPetToProfile(data.pet);
+            setPetId(data.pet.id);
+            setPet(loadedPet);
+            writeStoredPetId(data.pet.id);
+            clearLegacyPetProfile();
+            setFeedback(null);
+          }
           return;
         }
 
-        const restoreResult = await restoreLatestPet();
-
-        if (restoreResult.restored || restoreResult.blocked) {
-          return;
-        }
-
-        const legacyPet = readLegacyPetProfile();
-
-        if (isMounted && legacyPet) {
-          setPetId(null);
-          setPet(legacyPet);
-          setFeedback({
-            type: "info",
-            message:
-              "已读取你之前保存在本地的宠物资料，重新保存后会同步到后端。",
-          });
-        } else if (isMounted) {
-          setPetId(null);
-          setPet(EMPTY_PET);
-          setFeedback(null);
-        }
+        // 没有任何 id：空表单新建
+        if (isMounted) { setPetId(null); setPet(EMPTY_PET); setFeedback(null); }
       } catch {
-        if (isMounted) {
-          setFeedback({
-            type: "error",
-            message: "暂时连不上后端，请确认服务已启动。",
-          });
-        }
+        if (isMounted) setFeedback({ type: "error", message: "暂时连不上后端，请确认服务已启动。" });
       } finally {
-        if (isMounted) {
-          setIsLoadingPet(false);
-        }
+        if (isMounted) setIsLoadingPet(false);
       }
     };
 
     void loadPet();
 
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+    return () => { isMounted = false; };
+  }, [editId, forceNew]);
 
   const handlePetChange = (field: keyof PetProfile, value: string) => {
     setPet((currentPet) => ({
@@ -425,10 +291,22 @@ export default function CreatePetPage() {
             ← 返回首页
           </Link>
 
-          <h1 className="mt-4 text-3xl font-bold sm:text-4xl">创建宠物</h1>
+          <h1 className="mt-4 text-3xl font-bold sm:text-4xl">
+            {petId !== null ? "编辑宠物" : "创建宠物"}
+          </h1>
           <p className="mt-3 text-base leading-7 text-gray-600">
-            先为你的第一只宠物填写基础资料。现在这一版会实时读取你的输入，并在右侧显示预览。
+            {petId !== null
+              ? "修改你的宠物资料，保存后立即生效。需要新建第二只宠物？"
+              : "先为你的第一只宠物填写基础资料。现在这一版会实时读取你的输入，并在右侧显示预览。"}
           </p>
+          {petId !== null && (
+            <Link
+              href="/my-pets"
+              className="mt-2 inline-block text-sm text-violet-600 transition hover:text-violet-800"
+            >
+              前往宠物管理页新建 →
+            </Link>
+          )}
         </div>
 
         <div className="grid gap-8 lg:grid-cols-2">
@@ -766,5 +644,13 @@ export default function CreatePetPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function CreatePetPage() {
+  return (
+    <Suspense fallback={null}>
+      <CreatePetPageContent />
+    </Suspense>
   );
 }
