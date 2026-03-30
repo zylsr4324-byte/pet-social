@@ -15,7 +15,7 @@ from app.schemas import (
     PetUpdate,
 )
 from app.services.auth import get_current_user
-from app.services.pet_chat import call_llm_for_pet_reply, read_recent_messages_for_prompt
+from app.services.pet_chat import create_pet_chat_turn
 from app.services.pet_stats import (
     apply_decay_and_save,
     calculate_mood,
@@ -171,25 +171,8 @@ def chat_with_pet(
             detail="消息内容不能为空。",
         )
 
-    user_message = Message(
-        pet_id=pet.id,
-        role="user",
-        content=user_text,
-    )
-
     try:
-        db.add(user_message)
-        db.flush()
-
-        recent_messages = read_recent_messages_for_prompt(db, pet.id)
-        pet_reply = call_llm_for_pet_reply(pet, recent_messages)
-        pet_message = Message(
-            pet_id=pet.id,
-            role="pet",
-            content=pet_reply,
-        )
-
-        db.add(pet_message)
+        user_message, pet_message = create_pet_chat_turn(db, pet, payload.message)
         db.commit()
         db.refresh(user_message)
         db.refresh(pet_message)

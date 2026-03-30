@@ -123,6 +123,11 @@ class SocialSendRequest(BaseModel):
     message: str = Field(min_length=1, max_length=500)
 
 
+class ExternalA2ASendRequest(BaseModel):
+    agentUrl: str = Field(min_length=1, max_length=500)
+    message: str = Field(min_length=1, max_length=500)
+
+
 class PetTaskResponse(BaseModel):
     id: int
     targetPetId: int
@@ -131,6 +136,8 @@ class PetTaskResponse(BaseModel):
     state: str
     inputText: str
     outputText: str | None
+    externalTaskId: str | None = None
+    agentUrl: str | None = None
     createdAt: datetime
     completedAt: datetime | None
 
@@ -206,6 +213,19 @@ class SocialSendResponse(BaseModel):
     replyMessage: SocialMessageResponse
     conversationId: int
     targetPet: PetResponse
+
+
+class ExternalA2ARemoteResultResponse(BaseModel):
+    agentUrl: str
+    taskId: str | None
+    state: str
+    replyText: str | None
+
+
+class ExternalA2ASendResponse(BaseModel):
+    message: str
+    task: PetTaskResponse
+    remote: ExternalA2ARemoteResultResponse
 
 
 class SocialRoundResponse(BaseModel):

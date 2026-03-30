@@ -1,7 +1,8 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -112,7 +113,7 @@ class PetTask(Base):
             name="check_pet_task_type",
         ),
         CheckConstraint(
-            "state IN ('pending', 'completed', 'failed')",
+            "state IN ('pending', 'completed', 'failed', 'canceled')",
             name="check_pet_task_state",
         ),
     )
@@ -128,6 +129,12 @@ class PetTask(Base):
     state: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     input_text: Mapped[str] = mapped_column(String(500), nullable=False)
     output_text: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    a2a_task_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, unique=True, index=True
+    )
+    source_agent_url: Mapped[str | None] = mapped_column(
+        String(500), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -198,4 +205,21 @@ class PetSocialMessage(Base):
     content: Mapped[str] = mapped_column(String(500), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class PetDailyQuota(Base):
+    __tablename__ = "pet_daily_quotas"
+    __table_args__ = (
+        UniqueConstraint("pet_id", "date", name="uq_pet_daily_quota_pet_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    pet_id: Mapped[int] = mapped_column(
+        ForeignKey("pets.id"), nullable=False, index=True
+    )
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    llm_calls_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    social_initiations_used: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
     )

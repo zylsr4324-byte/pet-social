@@ -407,6 +407,13 @@ MVP 阶段**不做真正的自主社交**（没有 scheduler/worker 基础设施
 
 > Phase 2.5 解决"宠物怎么对话"；Phase 4 解决"怎么用标准协议暴露和对接"。
 
+#### 当前进展（2026-03-29）
+- 已完成：`4.1 Agent Card 生成` 与 `4.2 A2A JSON-RPC 端点` 的最小闭环，现已提供 `GET /.well-known/agent.json`、`GET /a2a/pets/{id}/agent.json`、`POST /a2a/pets/{id}`，并支持 `message/send`、`tasks/get`、`tasks/cancel`
+- 已完成：`4.2 A2A JSON-RPC 端点` 已接回站内统一聊天落库链路，外部 A2A 对话会进入现有 `Message` 历史
+- 已完成：`4.3 PetTask 与 A2A Task 映射` 的当前最小落地，包含 `canceled` 状态映射、外部任务 `externalTaskId` / `agentUrl` 透出，以及站内任务列表可读
+- 已完成：`4.4 对外调用能力` 的当前最小落地，已具备外部 A2A `message/send` 请求构造、响应解析、失败映射，以及手动触发的站内入口
+- 已完成：与上述范围相关的后端回归测试与编译自检，Docker 环境中 `python -m unittest discover -s tests -p "test_*.py" -v`（41/41）与 `python -m compileall app tests` 已通过
+
 #### 前置条件
 - Phase 2.5 站内社交引擎已完成（PetTask、好友关系、站内对话服务）
 
@@ -543,6 +550,12 @@ class PetSocialMessage(Base):
 
 说明：好友关系和对话都用 `pet_a_id < pet_b_id` 规则去重，避免 A→B / B→A 产生两条记录。
 当前只支持双宠私聊，后续如需群聊再补关联表。
+
+#### 当前进展（2026-03-30）
+- 已完成：`5.1 社区广场页面` 的当前最小闭环，当前已提供 `/community` 页面，复用现有登录态与当前宠物恢复逻辑，读取 `/pets/{id}/social/candidates` 并补充 `/a2a/pets/{id}/agent.json` 信息，展示宠物卡片、品种、性格、社交状态，并支持基础筛选/搜索
+- 已完成：`5.2 好友系统 API` 的当前最小闭环，当前已具备 `POST /pets/{id}/friends/request`、`GET /pets/{id}/friends`、`POST /pets/{id}/friends/{friend_id}/accept` 与 `DELETE /pets/{id}/friends/{friend_id}`
+- 已完成：`5.3 宠物社交触发机制` 的当前最小闭环，当前继续复用手动触发接口 `POST /pets/{id}/social/round`，社区页加载时只读取宠物列表与最近社交记录，不会在页面加载时自动触发新的社交行为；定时触发仍按路线图延后到 worker 阶段
+- 已完成：`5.4 频控与成本控制` 的当前第一步落地，当前已新增 `PetDailyQuota` 数据表，并对 `POST /pets/{id}/social/round` 加入“每日主动社交上限 5 次”的后端限制；超额时会直接返回明确提示，不继续进入社交生成链路
 
 #### 实现步骤
 
@@ -778,3 +791,8 @@ Redis（容器已启动，未接入） →   Redis（缓存 + Task 队列）
 - [A2A 官方规范](https://google.github.io/A2A/)
 - [A2A Agent Discovery / Agent Card](https://google.github.io/A2A/#/topics/agent_discovery)
 - [Google A2A GitHub 仓库](https://github.com/google/A2A)
+#### 补充进展（2026-03-30）
+- 已完成：`5.4 频控与成本控制` 的当前第二步落地，当前已在好友请求链路补上“同一对宠物 24 小时内只能发起 1 次好友请求”的后端冷却限制，并覆盖 `POST /pets/{id}/friends/request` 与手动社交回合 `POST /pets/{id}/social/round` 两条入口；复用被拒关系重新发起请求时也会刷新请求时间，避免绕过冷却。
+
+#### 补充进展（2026-03-30）
+- 已完成：`5.4 频控与成本控制` 的当前第二步落地，当前已在好友请求链路补上“同一对宠物 24 小时内只能发起 1 次好友请求”的后端冷却限制，并覆盖 `POST /pets/{id}/friends/request` 与手动社交回合 `POST /pets/{id}/social/round` 两条入口；复用被拒关系重新发起请求时也会刷新请求时间，避免绕过冷却。

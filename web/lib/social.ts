@@ -85,6 +85,8 @@ export type SocialSendResponse = {
   targetPet: ApiPet;
 };
 
+export type SocialRoundResponse = SocialSendResponse;
+
 export type SocialCandidateState =
   | "incoming_request"
   | "ready_to_chat"
@@ -503,3 +505,7 @@ export const isSocialSendResponse = (
     isApiPet(response.targetPet)
   );
 };
+
+export const isSocialRoundResponse = (
+  value: unknown
+): value is SocialRoundResponse => isSocialSendResponse(value);

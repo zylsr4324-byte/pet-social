@@ -114,3 +114,37 @@ def call_llm_for_pet_reply(pet: Pet, recent_messages: list[Message]) -> str:
             return stricter_reply
 
     return build_role_safe_fallback_reply(pet, latest_user_message)
+
+
+def create_pet_chat_turn(
+    db: Session,
+    pet: Pet,
+    user_text: str,
+) -> tuple[Message, Message]:
+    normalized_user_text = user_text.strip()
+
+    if not normalized_user_text:
+        raise HTTPException(
+            status_code=400,
+            detail="Message content cannot be empty.",
+        )
+
+    user_message = Message(
+        pet_id=pet.id,
+        role="user",
+        content=normalized_user_text,
+    )
+    db.add(user_message)
+    db.flush()
+
+    recent_messages = read_recent_messages_for_prompt(db, pet.id)
+    pet_reply = call_llm_for_pet_reply(pet, recent_messages)
+    pet_message = Message(
+        pet_id=pet.id,
+        role="pet",
+        content=pet_reply,
+    )
+    db.add(pet_message)
+    db.flush()
+
+    return user_message, pet_message

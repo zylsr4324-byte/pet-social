@@ -17,7 +17,7 @@ export default function Home() {
         </p>
 
         <div className="mt-8 rounded-xl border border-gray-200 bg-gray-50 px-6 py-4 text-sm text-gray-600">
-          当前阶段：v0.3 家庭场景已接入基础地图和状态驱动移动，正在继续往更完整的 2D 互动扩展。
+          当前阶段：社区广场基础页已经接入，接下来继续沿路线图补完更完整的宠物社区能力。
         </div>
 
         <div className="mt-8 flex flex-wrap justify-center gap-3">
@@ -40,6 +40,13 @@ export default function Home() {
             className="inline-flex rounded-lg border border-amber-300 bg-amber-50 px-5 py-3 text-sm font-medium text-amber-800 transition hover:bg-amber-100"
           >
             站内社交
+          </Link>
+
+          <Link
+            href="/community"
+            className="inline-flex rounded-lg border border-emerald-300 bg-emerald-50 px-5 py-3 text-sm font-medium text-emerald-800 transition hover:bg-emerald-100"
+          >
+            社区广场
           </Link>
 
           <Link

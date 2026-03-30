@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import or_
@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     Pet,
     PetConversation,
+    PetDailyQuota,
     PetFriendship,
     PetSocialMessage,
     PetTask,
@@ -35,6 +36,8 @@ from app.services.reply_validation import (
 )
 
 SOCIAL_CONTEXT_LIMIT = 8
+DAILY_SOCIAL_INITIATION_LIMIT = 5
+FRIEND_REQUEST_COOLDOWN_HOURS = 24
 
 
 def normalize_pet_pair(pet_a_id: int, pet_b_id: int) -> tuple[int, int]:
@@ -154,6 +157,8 @@ def build_pet_task_response(task: PetTask) -> PetTaskResponse:
         state=task.state,
         inputText=task.input_text,
         outputText=task.output_text,
+        externalTaskId=task.a2a_task_id,
+        agentUrl=task.source_agent_url,
         createdAt=task.created_at,
         completedAt=task.completed_at,
     )
@@ -254,6 +259,72 @@ def build_social_task_history_item(
     )
 
 
+def get_or_create_pet_daily_quota(
+    db: Session, pet_id: int, quota_date: date | None = None
+) -> PetDailyQuota:
+    target_date = quota_date or datetime.now(timezone.utc).date()
+    quota = (
+        db.query(PetDailyQuota)
+        .filter(PetDailyQuota.pet_id == pet_id, PetDailyQuota.date == target_date)
+        .first()
+    )
+
+    if quota is not None:
+        return quota
+
+    quota = PetDailyQuota(
+        pet_id=pet_id,
+        date=target_date,
+        llm_calls_used=0,
+        social_initiations_used=0,
+    )
+    db.add(quota)
+    db.flush()
+    return quota
+
+
+def consume_daily_social_initiation_quota(
+    db: Session,
+    pet_id: int,
+    *,
+    quota_date: date | None = None,
+    limit: int = DAILY_SOCIAL_INITIATION_LIMIT,
+) -> PetDailyQuota:
+    quota = get_or_create_pet_daily_quota(db, pet_id, quota_date=quota_date)
+
+    if quota.social_initiations_used >= limit:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"当前宠物今天已达到{limit}次主动社交上限，请明天再试。",
+        )
+
+    quota.social_initiations_used += 1
+    db.flush()
+    return quota
+
+
+def is_friend_request_in_cooldown(
+    friendship: PetFriendship,
+    *,
+    current_time: datetime | None = None,
+) -> bool:
+    if friendship.status != "rejected" or friendship.created_at is None:
+        return False
+
+    request_created_at = friendship.created_at
+    if request_created_at.tzinfo is None:
+        request_created_at = request_created_at.replace(tzinfo=timezone.utc)
+
+    now = current_time or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+
+    cooldown_deadline = request_created_at + timedelta(
+        hours=FRIEND_REQUEST_COOLDOWN_HOURS
+    )
+    return now < cooldown_deadline
+
+
 def ensure_friendship_can_chat(friendship: PetFriendship | None) -> None:
     if friendship is None or friendship.status != "accepted":
         raise HTTPException(
@@ -263,7 +334,10 @@ def ensure_friendship_can_chat(friendship: PetFriendship | None) -> None:
 
 
 def ensure_friendship_request_allowed(
-    friendship: PetFriendship | None, current_pet_id: int
+    friendship: PetFriendship | None,
+    current_pet_id: int,
+    *,
+    current_time: datetime | None = None,
 ) -> None:
     if friendship is None:
         return
@@ -284,6 +358,15 @@ def ensure_friendship_request_allowed(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="对方已经先发来好友请求，请先接受或拒绝。",
+        )
+
+    if friendship.status == "rejected" and is_friend_request_in_cooldown(
+        friendship,
+        current_time=current_time,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="\u540c\u4e00\u5bf9\u5ba0\u7269 24 \u5c0f\u65f6\u5185\u53ea\u80fd\u53d1\u8d77 1 \u6b21\u597d\u53cb\u8bf7\u6c42\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002",
         )
 
 
@@ -458,7 +541,11 @@ def choose_social_round_target(db: Session, source_pet: Pet) -> tuple[Pet, str]:
 
     for candidate in candidates:
         friendship = get_friendship_between(db, source_pet.id, candidate.id)
-        if friendship is None or friendship.status == "rejected":
+        if friendship is None:
+            return candidate, "greet"
+        if friendship.status == "rejected" and not is_friend_request_in_cooldown(
+            friendship
+        ):
             return candidate, "greet"
 
     raise HTTPException(
@@ -474,6 +561,7 @@ def prepare_round_friendship(
         return
 
     friendship = get_friendship_between(db, source_pet.id, target_pet.id)
+    ensure_friendship_request_allowed(friendship, source_pet.id)
     pair_a, pair_b = normalize_pet_pair(source_pet.id, target_pet.id)
 
     if friendship is None:
@@ -490,6 +578,7 @@ def prepare_round_friendship(
     friendship.initiated_by = source_pet.id
     friendship.status = "pending"
     friendship.accepted_at = None
+    friendship.created_at = datetime.now(timezone.utc)
 
 
 def get_social_tasks_for_pet(db: Session, pet_id: int) -> list[PetTask]:

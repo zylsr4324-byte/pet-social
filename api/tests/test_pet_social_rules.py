@@ -4,6 +4,7 @@ import importlib.util
 import sys
 import types
 import unittest
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -45,6 +46,7 @@ def build_stub_modules() -> tuple[dict[str, types.ModuleType], type[Exception]]:
     fastapi_module.status = SimpleNamespace(
         HTTP_400_BAD_REQUEST=400,
         HTTP_409_CONFLICT=409,
+        HTTP_429_TOO_MANY_REQUESTS=429,
         HTTP_500_INTERNAL_SERVER_ERROR=500,
         HTTP_502_BAD_GATEWAY=502,
     )
@@ -91,6 +93,10 @@ def build_stub_modules() -> tuple[dict[str, types.ModuleType], type[Exception]]:
         sender_pet_id = ColumnStub("sender_pet_id")
         created_at = ColumnStub("created_at")
 
+    class PetDailyQuota(StubEntity):
+        pet_id = ColumnStub("pet_id")
+        date = ColumnStub("date")
+
     class PetTask(StubEntity):
         id = ColumnStub("id")
         source_pet_id = ColumnStub("source_pet_id")
@@ -101,6 +107,7 @@ def build_stub_modules() -> tuple[dict[str, types.ModuleType], type[Exception]]:
     app_models_module.PetConversation = PetConversation
     app_models_module.PetFriendship = PetFriendship
     app_models_module.PetSocialMessage = PetSocialMessage
+    app_models_module.PetDailyQuota = PetDailyQuota
     app_models_module.PetTask = PetTask
 
     app_schemas_module = types.ModuleType("app.schemas")
@@ -207,20 +214,27 @@ class PetSocialRuleTests(unittest.TestCase):
         initiated_by: int,
         pet_a_id: int = 1,
         pet_b_id: int = 2,
+        created_at: datetime | None = None,
     ) -> object:
         return self.pet_social.PetFriendship(
             pet_a_id=pet_a_id,
             pet_b_id=pet_b_id,
             initiated_by=initiated_by,
             status=status,
-            created_at="2026-03-28T00:00:00Z",
-            accepted_at="2026-03-28T01:00:00Z" if status == "accepted" else None,
+            created_at=created_at
+            or datetime(2026, 3, 28, 0, 0, tzinfo=timezone.utc),
+            accepted_at=(
+                datetime(2026, 3, 28, 1, 0, tzinfo=timezone.utc)
+                if status == "accepted"
+                else None
+            ),
         )
 
     def create_query(self, result: list[object]) -> MagicMock:
         query = MagicMock()
         query.filter.return_value = query
         query.order_by.return_value = query
+        query.first.return_value = result[0] if result else None
         query.all.return_value = result
         return query
 
@@ -263,6 +277,45 @@ class PetSocialRuleTests(unittest.TestCase):
 
         self.assertEqual(context.exception.status_code, 409)
         self.assertIn("先接受或拒绝", context.exception.detail)
+
+    def test_ensure_friendship_request_allowed_blocks_recent_rejected_request(self):
+        friendship = self.create_friendship(
+            status="rejected",
+            initiated_by=1,
+            created_at=datetime(2026, 3, 30, 8, 0, tzinfo=timezone.utc),
+        )
+
+        with self.assertRaises(self.http_exception) as context:
+            self.pet_social.ensure_friendship_request_allowed(
+                friendship,
+                current_pet_id=1,
+                current_time=datetime(2026, 3, 31, 7, 59, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(context.exception.status_code, 409)
+        """
+        self.assertIn("24 小时内只能发起 1 次好友请求", context.exception.detail)
+
+        """
+        self.assertEqual(
+            context.exception.detail,
+            "\u540c\u4e00\u5bf9\u5ba0\u7269 24 \u5c0f\u65f6\u5185\u53ea\u80fd\u53d1\u8d77 1 \u6b21\u597d\u53cb\u8bf7\u6c42\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002",
+        )
+
+    def test_ensure_friendship_request_allowed_allows_rejected_request_after_cooldown(
+        self,
+    ):
+        friendship = self.create_friendship(
+            status="rejected",
+            initiated_by=1,
+            created_at=datetime(2026, 3, 30, 8, 0, tzinfo=timezone.utc),
+        )
+
+        self.pet_social.ensure_friendship_request_allowed(
+            friendship,
+            current_pet_id=1,
+            current_time=datetime(2026, 3, 31, 8, 0, tzinfo=timezone.utc),
+        )
 
     def test_choose_social_round_target_prioritizes_existing_friend(self):
         source_pet = self.create_pet(1, "源宠物")
@@ -339,6 +392,132 @@ class PetSocialRuleTests(unittest.TestCase):
         self.assertEqual(context.exception.status_code, 409)
         self.assertIn("待接收请求", context.exception.detail)
         self.assertIn("等待对方回应", context.exception.detail)
+
+    def test_choose_social_round_target_skips_recent_rejected_candidate(self):
+        source_pet = self.create_pet(1, "Source")
+        recent_rejected_pet = self.create_pet(2, "Recent")
+        stranger_pet = self.create_pet(3, "Stranger")
+        friendship_query = self.create_query([])
+        pet_query = self.create_query([recent_rejected_pet, stranger_pet])
+        db = MagicMock()
+        db.query.side_effect = (
+            lambda model: friendship_query
+            if model is self.pet_social.PetFriendship
+            else pet_query
+        )
+
+        with patch.object(
+            self.pet_social,
+            "get_friendship_between",
+            side_effect=[
+                self.create_friendship(
+                    status="rejected",
+                    initiated_by=1,
+                    pet_b_id=2,
+                    created_at=datetime.now(timezone.utc) - timedelta(hours=1),
+                ),
+                None,
+            ],
+        ):
+            target_pet, task_type = self.pet_social.choose_social_round_target(
+                db, source_pet
+            )
+
+        self.assertIs(target_pet, stranger_pet)
+        self.assertEqual(task_type, "greet")
+
+    def test_prepare_round_friendship_refreshes_rejected_friendship_timestamp(self):
+        db = MagicMock()
+        source_pet = self.create_pet(1, "Source")
+        target_pet = self.create_pet(2, "Target")
+        original_created_at = datetime(2026, 3, 28, 0, 0, tzinfo=timezone.utc)
+        friendship = self.create_friendship(
+            status="rejected",
+            initiated_by=1,
+            created_at=original_created_at,
+        )
+
+        with patch.object(
+            self.pet_social,
+            "get_friendship_between",
+            return_value=friendship,
+        ):
+            self.pet_social.prepare_round_friendship(
+                db,
+                source_pet,
+                target_pet,
+                "greet",
+            )
+
+        self.assertEqual(friendship.status, "pending")
+        self.assertEqual(friendship.initiated_by, source_pet.id)
+        self.assertIsNone(friendship.accepted_at)
+        self.assertNotEqual(friendship.created_at, original_created_at)
+        db.add.assert_not_called()
+
+    def test_consume_daily_social_initiation_quota_creates_new_quota_and_increments(self):
+        quota_query = MagicMock()
+        quota_query.filter.return_value = quota_query
+        quota_query.first.return_value = None
+        db = MagicMock()
+        db.query.return_value = quota_query
+
+        quota = self.pet_social.consume_daily_social_initiation_quota(
+            db,
+            pet_id=7,
+            quota_date=date(2026, 3, 30),
+        )
+
+        self.assertEqual(quota.pet_id, 7)
+        self.assertEqual(quota.date, date(2026, 3, 30))
+        self.assertEqual(quota.llm_calls_used, 0)
+        self.assertEqual(quota.social_initiations_used, 1)
+        db.add.assert_called_once_with(quota)
+        self.assertEqual(db.flush.call_count, 2)
+
+    def test_consume_daily_social_initiation_quota_blocks_when_limit_reached(self):
+        existing_quota = self.pet_social.PetDailyQuota(
+            pet_id=7,
+            date=date(2026, 3, 30),
+            llm_calls_used=0,
+            social_initiations_used=5,
+        )
+        quota_query = MagicMock()
+        quota_query.filter.return_value = quota_query
+        quota_query.first.return_value = existing_quota
+        db = MagicMock()
+        db.query.return_value = quota_query
+
+        with self.assertRaises(self.http_exception) as context:
+            self.pet_social.consume_daily_social_initiation_quota(
+                db,
+                pet_id=7,
+                quota_date=date(2026, 3, 30),
+            )
+
+        self.assertEqual(context.exception.status_code, 429)
+        self.assertIn("5次主动社交上限", context.exception.detail)
+        db.add.assert_not_called()
+
+    def test_build_pet_task_response_includes_external_a2a_fields(self):
+        task = self.pet_social.PetTask(
+            id=11,
+            target_pet_id=7,
+            source_pet_id=None,
+            task_type="chat",
+            state="completed",
+            input_text="hello remote",
+            output_text="remote hello",
+            a2a_task_id="task-remote",
+            source_agent_url="https://remote.example/a2a/pets/9",
+            created_at="2026-03-29T00:00:00Z",
+            completed_at="2026-03-29T00:00:05Z",
+        )
+
+        response = self.pet_social.build_pet_task_response(task)
+
+        self.assertEqual(response.externalTaskId, "task-remote")
+        self.assertEqual(response.agentUrl, "https://remote.example/a2a/pets/9")
 
 
 if __name__ == "__main__":

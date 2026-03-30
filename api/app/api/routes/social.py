@@ -1,12 +1,14 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Pet, PetFriendship, PetSocialMessage
 from app.schemas import (
+    ExternalA2ASendRequest,
+    ExternalA2ASendResponse,
     FriendshipActionResponse,
     FriendshipCreateRequest,
     FriendshipListResponse,
@@ -17,6 +19,7 @@ from app.schemas import (
     SocialSendResponse,
     SocialTaskListResponse,
 )
+from app.services.a2a import create_outbound_a2a_task_for_pet
 from app.services.auth import get_current_user
 from app.services.pet_social import (
     build_social_round_result_message,
@@ -29,6 +32,7 @@ from app.services.pet_social import (
     build_pet_task_response,
     choose_social_round_target,
     complete_social_task,
+    consume_daily_social_initiation_quota,
     create_social_message,
     create_social_task,
     ensure_friendship_can_chat,
@@ -137,6 +141,7 @@ def request_friendship(
             friendship.initiated_by = source_pet.id
             friendship.status = "pending"
             friendship.accepted_at = None
+            friendship.created_at = datetime.now(timezone.utc)
 
         conversation = get_or_create_conversation(db, source_pet.id, target_pet.id)
         create_social_message(db, conversation.id, source_pet.id, request_message)
@@ -238,6 +243,53 @@ def reject_friendship(
     return FriendshipActionResponse(
         message=f"已拒绝{friend_pet.pet_name}的好友请求，当前不能直接聊天。",
         friendship=build_friendship_response(db, friendship, source_pet.id),
+    )
+
+
+@router.delete(
+    "/pets/{pet_id}/friends/{friend_id}",
+    response_model=FriendshipActionResponse,
+)
+def delete_friendship(
+    pet_id: int,
+    friend_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> FriendshipActionResponse:
+    source_pet = get_owned_pet_or_404(db, pet_id, current_user.id)
+    friend_pet = get_pet_or_404(db, friend_id)
+    friendship = get_friendship_between(db, source_pet.id, friend_id)
+
+    if friendship is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="没有找到这条好友关系。",
+        )
+
+    friendship_response = build_friendship_response(db, friendship, source_pet.id)
+
+    if friendship.status == "accepted":
+        response_message = f"已将{friend_pet.pet_name}从好友列表移除。"
+    elif friendship.status == "pending" and friendship.initiated_by == source_pet.id:
+        response_message = f"已撤回发给{friend_pet.pet_name}的好友请求。"
+    elif friendship.status == "pending":
+        response_message = f"已删除来自{friend_pet.pet_name}的好友请求。"
+    else:
+        response_message = f"已清理与{friend_pet.pet_name}的好友关系记录。"
+
+    try:
+        db.delete(friendship)
+        db.commit()
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="删除好友关系失败，请稍后再试。",
+        ) from error
+
+    return FriendshipActionResponse(
+        message=response_message,
+        friendship=friendship_response,
     )
 
 
@@ -352,6 +404,58 @@ def send_social_message(
     )
 
 
+@router.post(
+    "/pets/{pet_id}/social/external/send",
+    response_model=ExternalA2ASendResponse,
+)
+def send_external_a2a_message(
+    pet_id: int,
+    payload: ExternalA2ASendRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> ExternalA2ASendResponse:
+    source_pet = get_owned_pet_or_404(db, pet_id, current_user.id)
+    source_agent_url = (
+        f"{str(request.base_url).rstrip('/')}/a2a/pets/{source_pet.id}/agent.json"
+    )
+
+    try:
+        task, remote_result = create_outbound_a2a_task_for_pet(
+            db,
+            source_pet,
+            payload.agentUrl,
+            payload.message,
+            source_agent_url=source_agent_url,
+        )
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="External A2A message dispatch failed.",
+        ) from error
+
+    remote_state = str(remote_result["state"]).strip()
+
+    if remote_state == "failed":
+        response_message = "External A2A message recorded as a failed task."
+    elif task.state == "pending":
+        response_message = "External A2A message dispatched and is still pending."
+    else:
+        response_message = "External A2A message dispatched and recorded."
+
+    return ExternalA2ASendResponse(
+        message=response_message,
+        task=build_pet_task_response(task),
+        remote={
+            "agentUrl": payload.agentUrl.strip(),
+            "taskId": remote_result["id"],
+            "state": remote_state,
+            "replyText": remote_result["replyText"],
+        },
+    )
+
+
 @router.post("/pets/{pet_id}/social/round", response_model=SocialRoundResponse)
 def run_social_round(
     pet_id: int,
@@ -359,10 +463,11 @@ def run_social_round(
     current_user=Depends(get_current_user),
 ) -> SocialRoundResponse:
     source_pet = get_owned_pet_or_404(db, pet_id, current_user.id)
-    target_pet, task_type = choose_social_round_target(db, source_pet)
-    input_text = build_round_opening(source_pet, target_pet, task_type)
 
     try:
+        consume_daily_social_initiation_quota(db, source_pet.id)
+        target_pet, task_type = choose_social_round_target(db, source_pet)
+        input_text = build_round_opening(source_pet, target_pet, task_type)
         prepare_round_friendship(db, source_pet, target_pet, task_type)
         conversation = get_or_create_conversation(db, source_pet.id, target_pet.id)
         task = create_social_task(
@@ -388,6 +493,9 @@ def run_social_round(
         )
         complete_social_task(task, reply_text)
         db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
     except SQLAlchemyError as error:
         db.rollback()
         raise HTTPException(
