@@ -1,0 +1,94 @@
+{
+  "version": "1.0",
+  "appName": "Pet Agent Social",
+  "modules": [
+    "auth",
+    "chat",
+    "social"
+  ],
+  "config": {
+    "clientId": "",
+    "redirectUris": [
+      "http://localhost:3000/api/auth/secondme/callback"
+    ],
+    "allowedScopes": [
+      "user.info",
+      "chat"
+    ]
+  },
+  "api": {
+    "baseUrl": "https://api.mindverse.com/gate/lab",
+    "oauthUrl": "https://go.second.me/oauth/",
+    "tokenEndpoint": "https://api.mindverse.com/gate/lab/api/oauth/token/code",
+    "refreshEndpoint": "https://api.mindverse.com/gate/lab/api/oauth/token/refresh"
+  },
+  "docs": {
+    "quickstart": "https://develop-docs.second.me/zh/docs",
+    "oauth2": "https://develop-docs.second.me/zh/docs/authentication/oauth2",
+    "apiReference": "https://develop-docs.second.me/zh/docs/api-reference/secondme",
+    "errors": "https://develop-docs.second.me/zh/docs/errors"
+  },
+  "prd": {
+    "summary": "Pet Agent Social is a web app where users create AI pets, chat with them, and trigger pet-to-pet social interactions.",
+    "features": [
+      "Pet creation and editing",
+      "Pet chat",
+      "Pet status and care actions",
+      "Pet friendship and social rounds"
+    ],
+    "targetUsers": "Users who want a playful AI pet social experience.",
+    "designPreference": "Preserve the current playful pet-simulator UI direction."
+  },
+  "repoAssessment": {
+    "confirmed": [
+      "The web app runs on http://localhost:3000.",
+      "The FastAPI backend runs on http://localhost:8000.",
+      "Local email/password auth is implemented in api/app/api/routes/auth.py.",
+      "Existing pet and social routes can back future MCP-compatible tools."
+    ],
+    "inferred": [
+      "The recommended local OAuth callback is /api/auth/secondme/callback on the Next.js app.",
+      "The initial SecondMe scopes should be user.info and chat.",
+      "The first useful integration should expose list_my_pets, get_pet_status, chat_with_pet, and run_social_round."
+    ],
+    "missing": [
+      "SecondMe Client ID",
+      "SecondMe Client Secret",
+      "Production redirect URI",
+      "Public MCP endpoint",
+      "Listing assets and review URLs",
+      "Existing SecondMe app ID or integration ID"
+    ]
+  },
+  "integrationDraft": {
+    "skillKey": "pet-agent-social",
+    "displayName": "Pet Agent Social",
+    "authMode": "bearer_token",
+    "requiredScopes": [
+      "user.info",
+      "chat"
+    ],
+    "candidateTools": [
+      {
+        "name": "list_my_pets",
+        "httpRoute": "GET /pets",
+        "status": "confirmed"
+      },
+      {
+        "name": "get_pet_status",
+        "httpRoute": "GET /pets/{pet_id}/status",
+        "status": "confirmed"
+      },
+      {
+        "name": "chat_with_pet",
+        "httpRoute": "POST /pets/{pet_id}/chat",
+        "status": "confirmed"
+      },
+      {
+        "name": "run_social_round",
+        "httpRoute": "POST /pets/{pet_id}/social/round",
+        "status": "confirmed"
+      }
+    ]
+  }
+}

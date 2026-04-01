@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { AuthSessionNotice } from "../../lib/AuthSessionNotice";
 import {
   buildAuthHeaders,
   clearStoredAuth,
@@ -474,6 +475,8 @@ export default function MyPetPage() {
             )}
           </div>
         </div>
+
+        <AuthSessionNotice authToken={authToken} className="mb-8" />
 
         {!isLoaded ? (
           <section className="rounded-2xl border border-gray-200 bg-gray-50 p-6 shadow-sm">

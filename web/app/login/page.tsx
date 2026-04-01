@@ -1,18 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+
+import {
+  buildAuthHeaders,
+  clearStoredAuth,
+  clearTemporarySecondMeAuthResult,
+  readStoredAuthToken,
+  readTemporarySecondMeAuthResult,
+  storeAuthToken,
+} from "../../lib/auth";
+import { API_BASE_URL } from "../../lib/constants";
 
 type AuthUser = {
   id: number;
   email: string;
+  authProvider: string;
   created_at: string;
-};
-
-type AuthLoginResponse = {
-  message: string;
-  token: string;
-  user: AuthUser;
 };
 
 type AuthMeResponse = {
@@ -24,10 +29,6 @@ type AuthLogoutResponse = {
   message: string;
 };
 
-const API_BASE_URL = "http://localhost:8000";
-const AUTH_TOKEN_STORAGE_KEY = "pet-agent-social:auth-token";
-const AUTH_EMAIL_STORAGE_KEY = "pet-agent-social:auth-user-email";
-
 const isAuthUser = (value: unknown): value is AuthUser => {
   if (!value || typeof value !== "object") {
     return false;
@@ -38,23 +39,13 @@ const isAuthUser = (value: unknown): value is AuthUser => {
   return (
     typeof user.id === "number" &&
     typeof user.email === "string" &&
+    typeof user.authProvider === "string" &&
     typeof user.created_at === "string"
   );
 };
 
-const isAuthLoginResponse = (value: unknown): value is AuthLoginResponse => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const response = value as Record<string, unknown>;
-
-  return (
-    typeof response.message === "string" &&
-    typeof response.token === "string" &&
-    isAuthUser(response.user)
-  );
-};
+const getAuthProviderLabel = (authProvider: string) =>
+  authProvider === "secondme" ? "SecondMe" : "local account";
 
 const isAuthMeResponse = (value: unknown): value is AuthMeResponse => {
   if (!value || typeof value !== "object") {
@@ -74,20 +65,6 @@ const isAuthLogoutResponse = (value: unknown): value is AuthLogoutResponse => {
   const response = value as Record<string, unknown>;
 
   return typeof response.message === "string";
-};
-
-const readStoredAuthToken = () => {
-  return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
-};
-
-const storeAuthToken = (token: string, email: string) => {
-  window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
-  window.localStorage.setItem(AUTH_EMAIL_STORAGE_KEY, email);
-};
-
-const clearStoredAuth = () => {
-  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-  window.localStorage.removeItem(AUTH_EMAIL_STORAGE_KEY);
 };
 
 const getResponseErrorMessage = async (
@@ -123,33 +100,33 @@ const getResponseErrorMessage = async (
 
 const requestCurrentUser = async (token: string) => {
   const response = await fetch(`${API_BASE_URL}/auth/me`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token),
     cache: "no-store",
   });
 
   if (!response.ok) {
     throw new Error(
-      await getResponseErrorMessage(response, "当前登录状态校验失败了，请重新登录。")
+      await getResponseErrorMessage(
+        response,
+        "Current login state could not be verified. Please log in again."
+      )
     );
   }
 
   const data: unknown = await response.json();
 
   if (!isAuthMeResponse(data)) {
-    throw new Error("当前登录状态校验失败了，请重新登录。");
+    throw new Error(
+      "Current login state could not be verified. Please log in again."
+    );
   }
 
   return data.user;
 };
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{
     type: "error" | "info";
@@ -159,11 +136,39 @@ export default function LoginPage() {
   useEffect(() => {
     let isMounted = true;
 
+    const stripOAuthQuery = () => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("secondme");
+      url.searchParams.delete("secondme_error");
+      window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+    };
+
     const loadCurrentUser = async () => {
+      const temporarySecondMeResult = readTemporarySecondMeAuthResult();
+      const secondMeError = new URLSearchParams(window.location.search).get(
+        "secondme_error"
+      );
+
+      if (temporarySecondMeResult) {
+        clearTemporarySecondMeAuthResult();
+        storeAuthToken(
+          temporarySecondMeResult.token,
+          temporarySecondMeResult.email
+        );
+        stripOAuthQuery();
+      } else if (secondMeError) {
+        stripOAuthQuery();
+      }
+
       const token = readStoredAuthToken();
 
       if (!token) {
         if (isMounted) {
+          setStatusMessage(
+            secondMeError
+              ? { type: "error", message: secondMeError }
+              : null
+          );
           setIsCheckingAuth(false);
         }
         return;
@@ -179,7 +184,9 @@ export default function LoginPage() {
         setCurrentUser(user);
         setStatusMessage({
           type: "info",
-          message: `当前已登录：${user.email}`,
+          message: temporarySecondMeResult
+            ? `SecondMe login successful. Current account: ${user.email}`
+            : `Current ${getAuthProviderLabel(user.authProvider)}: ${user.email}`,
         });
       } catch (error) {
         clearStoredAuth();
@@ -194,7 +201,7 @@ export default function LoginPage() {
           message:
             error instanceof Error
               ? error.message
-              : "当前登录状态校验失败了，请重新登录。",
+              : "Current login state could not be verified. Please log in again.",
         });
       } finally {
         if (isMounted) {
@@ -210,87 +217,6 @@ export default function LoginPage() {
     };
   }, []);
 
-  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (!email.trim() || !password.trim()) {
-      setStatusMessage({
-        type: "error",
-        message: "请先填写邮箱和密码。",
-      });
-      return;
-    }
-
-    setIsSubmitting(true);
-    setStatusMessage(null);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: email.trim(),
-          password,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorMessage = await getResponseErrorMessage(
-          response,
-          "登录失败了，请稍后再试。"
-        );
-
-        setStatusMessage({
-          type: "error",
-          message: errorMessage,
-        });
-        return;
-      }
-
-      const data: unknown = await response.json();
-
-      if (!isAuthLoginResponse(data)) {
-        setStatusMessage({
-          type: "error",
-          message: "登录结果格式不正确，请稍后再试。",
-        });
-        return;
-      }
-
-      storeAuthToken(data.token, data.user.email);
-
-      try {
-        const verifiedUser = await requestCurrentUser(data.token);
-
-        setCurrentUser(verifiedUser);
-        setPassword("");
-        setStatusMessage({
-          type: "info",
-          message: `登录成功，当前账号是 ${verifiedUser.email}。`,
-        });
-      } catch (error) {
-        clearStoredAuth();
-        setCurrentUser(null);
-        setStatusMessage({
-          type: "error",
-          message:
-            error instanceof Error
-              ? error.message
-              : "登录状态校验失败了，请重新登录。",
-        });
-      }
-    } catch {
-      setStatusMessage({
-        type: "error",
-        message: "登录失败了，请稍后再试。",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const handleLogout = async () => {
     const token = readStoredAuthToken();
 
@@ -304,15 +230,13 @@ export default function LoginPage() {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/logout`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: buildAuthHeaders(token),
       });
 
       if (!response.ok) {
         const errorMessage = await getResponseErrorMessage(
           response,
-          "退出登录失败了，请稍后再试。"
+          "Logout failed. Please try again later."
         );
 
         setStatusMessage({
@@ -325,7 +249,7 @@ export default function LoginPage() {
       const data: unknown = await response.json();
       const successMessage = isAuthLogoutResponse(data)
         ? data.message
-        : "已退出登录。";
+        : "Logged out.";
 
       clearStoredAuth();
       setCurrentUser(null);
@@ -336,7 +260,7 @@ export default function LoginPage() {
     } catch {
       setStatusMessage({
         type: "error",
-        message: "退出登录失败了，请稍后再试。",
+        message: "Logout failed. Please try again later.",
       });
     } finally {
       setIsLoggingOut(false);
@@ -348,17 +272,15 @@ export default function LoginPage() {
       <div className="mx-auto max-w-2xl">
         <div className="mb-8 flex flex-wrap items-center gap-4 text-sm text-gray-500">
           <Link href="/" className="transition hover:text-gray-800">
-            返回首页
-          </Link>
-          <Link href="/register" className="transition hover:text-gray-800">
-            去注册
+            Back to home
           </Link>
         </div>
 
         <div className="mb-8">
-          <h1 className="text-3xl font-bold sm:text-4xl">登录账号</h1>
+          <h1 className="text-3xl font-bold sm:text-4xl">Continue with SecondMe</h1>
           <p className="mt-3 text-base leading-7 text-gray-600">
-            先把最小登录体系接起来，后面我们再把宠物归属到当前用户。
+            Local email registration and login have been removed. Use the
+            configured SecondMe app as the only sign-in method.
           </p>
         </div>
 
@@ -375,83 +297,45 @@ export default function LoginPage() {
             </div>
           ) : null}
 
-          <form onSubmit={handleLogin} className="space-y-5">
-            <div>
-              <label
-                htmlFor="login-email"
-                className="mb-2 block text-sm font-medium text-gray-800"
-              >
-                邮箱
-              </label>
-              <input
-                id="login-email"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="例如：demo@example.com"
-                disabled={isSubmitting || isLoggingOut}
-                className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500 disabled:cursor-not-allowed disabled:opacity-60"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="login-password"
-                className="mb-2 block text-sm font-medium text-gray-800"
-              >
-                密码
-              </label>
-              <input
-                id="login-password"
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="请输入密码"
-                disabled={isSubmitting || isLoggingOut}
-                className="w-full rounded-xl border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500 disabled:cursor-not-allowed disabled:opacity-60"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSubmitting || isLoggingOut}
-              className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Single Sign-On
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Start the OAuth flow with your configured SecondMe External App.
+            </p>
+            <a
+              href="/api/auth/secondme/start"
+              className="mt-4 inline-flex rounded-lg bg-slate-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-700"
             >
-              {isSubmitting ? "登录中..." : "登录"}
-            </button>
-          </form>
+              Continue with SecondMe
+            </a>
+          </div>
 
           <div className="mt-8 rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">
-                  当前登录状态
+                  Current session
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-gray-600">
                   {isCheckingAuth
-                    ? "正在检查当前登录状态..."
+                    ? "Checking the current login state..."
                     : currentUser
-                      ? `已登录账号：${currentUser.email}`
-                      : "当前还没有登录账号。"}
+                      ? `Signed in with ${getAuthProviderLabel(currentUser.authProvider)} as ${currentUser.email}`
+                      : "No active login session yet."}
                 </p>
               </div>
 
               <button
                 type="button"
                 onClick={() => void handleLogout()}
-                disabled={!currentUser || isLoggingOut || isSubmitting}
+                disabled={!currentUser || isLoggingOut || isCheckingAuth}
                 className="inline-flex rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:border-gray-400 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isLoggingOut ? "退出中..." : "退出登录"}
+                {isLoggingOut ? "Signing out..." : "Sign out"}
               </button>
             </div>
-          </div>
-
-          <div className="mt-6 text-sm text-gray-500">
-            还没有账号？
-            <Link href="/register" className="ml-1 text-gray-800 underline">
-              去注册
-            </Link>
           </div>
         </section>
       </div>

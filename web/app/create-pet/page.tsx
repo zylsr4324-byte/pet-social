@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { AuthSessionNotice } from "../../lib/AuthSessionNotice";
 import {
   buildAuthHeaders,
   clearStoredAuth,
@@ -308,6 +309,8 @@ function CreatePetPageContent() {
             </Link>
           )}
         </div>
+
+        <AuthSessionNotice authToken={authToken} className="mb-8" />
 
         <div className="grid gap-8 lg:grid-cols-2">
           <form className="space-y-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">

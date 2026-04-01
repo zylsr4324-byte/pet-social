@@ -66,6 +66,7 @@ class PetChatResponse(BaseModel):
 class UserResponse(BaseModel):
     id: int
     email: str
+    authProvider: str
     coins: int
     created_at: datetime
 
@@ -78,6 +79,12 @@ class AuthRegisterRequest(BaseModel):
 class AuthLoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=6, max_length=128)
+
+
+class AuthSecondMeCallbackRequest(BaseModel):
+    accessToken: str = Field(min_length=1, max_length=4000)
+    refreshToken: str | None = Field(default=None, max_length=4000)
+    expiresIn: int | None = Field(default=None, ge=1)
 
 
 class AuthRegisterResponse(BaseModel):

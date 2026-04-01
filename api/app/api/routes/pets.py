@@ -37,6 +37,13 @@ def create_pet(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PetDetailResponse:
+    existing_count = db.query(Pet).filter(Pet.owner_id == current_user.id).count()
+    if existing_count >= 3:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="每位用户最多拥有 3 只宠物。",
+        )
+
     pet = Pet(
         owner_id=current_user.id,
         pet_name=payload.petName,
@@ -316,3 +323,23 @@ def clean_pet(
         pet.last_interaction_at = datetime.now(timezone.utc)
 
     return _do_pet_action(pet_id, db, current_user, "清洁", apply)
+
+
+@router.delete("/pets/{pet_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_pet(
+    pet_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    pet = get_owned_pet_or_404(db, pet_id, current_user.id)
+    try:
+        db.query(Message).filter(Message.pet_id == pet_id).delete(synchronize_session=False)
+        db.delete(pet)
+        db.commit()
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="删除宠物失败了，请稍后再试。",
+        ) from error
+

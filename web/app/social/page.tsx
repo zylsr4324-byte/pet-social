@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { AuthSessionNotice } from "../../lib/AuthSessionNotice";
 import {
   SocialConversationPanel,
   SocialFriendshipsPanel,
@@ -427,6 +428,8 @@ export default function SocialPage() {
             />
           ) : null}
         </div>
+
+        <AuthSessionNotice authToken={authToken} className="mb-8" />
 
         {isLoading ? (
           <div className="rounded-2xl border border-gray-200 bg-gray-50 p-6 text-sm text-gray-600">

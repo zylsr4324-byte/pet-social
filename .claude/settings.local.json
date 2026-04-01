@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker restart:*)",
+      "Bash(curl -s http://localhost:8000/furniture/templates)",
+      "Bash(npx tsc:*)",
+      "Bash(docker ps:*)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl:*)",
+      "Bash(sed -n '1,442p' web/lib/PetHomeScene.tsx)",
+      "Read(//tmp/**)"
+    ]
+  }
+}

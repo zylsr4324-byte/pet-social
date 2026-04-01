@@ -4,3 +4,6 @@ sqlalchemy
 psycopg[binary]
 alembic
 httpx
+apscheduler>=3.10
+pytest
+anyio[trio]

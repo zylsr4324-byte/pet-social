@@ -193,3 +193,33 @@ SECONDME_REFRESH_ENDPOINT=https://api.mindverse.com/gate/lab/api/oauth/token/ref
 - Skill 仓库：<https://github.com/mindverse/second-me-skills/tree/main/skills/secondme-dev-assistant>
 - OAuth2 文档：<https://develop-docs.second.me/zh/docs/authentication/oauth2>
 - API Reference：<https://develop-docs.second.me/zh/docs/api-reference/secondme>
+
+## 2026-03-31 集成状态
+
+- [x] 已复用现有 SecondMe External App，并对齐 `Redirect URI` 与授权 scope。
+- [x] 已移除本地邮箱注册/登录入口，当前项目仅保留 SecondMe 登录。
+- [x] 后端已保存 `secondme_user_id`、`secondme_access_token`、`secondme_refresh_token`、`secondme_token_expires_at`。
+- [x] 后端已补上 refresh token 自动续期，且在 SecondMe 临时异常时不会直接打断本地登录态。
+- [x] `/auth/me` 已返回 `authProvider`，登录页当前会明确显示当前会话来自 SecondMe。
+- [ ] 下一步可选：把 SecondMe 已绑定状态继续透出到更多账号相关页面。
+
+## 2026-04-01 Public Page Update
+
+- [x] 已补公开站点草稿页：
+  - `/`
+  - `/support`
+  - `/privacy`
+- [x] 已补本地 icon 资产：
+  - `web/public/secondme/pet-agent-social-icon.svg`
+- [x] 已整理截图拍摄清单：
+  - `docs/SECONDME_REVIEW_ASSETS.md`
+- [x] 已整理最终 App listing 回填草稿：
+  - `docs/SECONDME_APP_LISTING_DRAFT.md`
+- [x] 已整理部署交接清单：
+  - `docs/SECONDME_DEPLOYMENT_HANDOFF.md`
+- [x] 已把 SecondMe 当前会话状态继续透出到更多宠物相关页面。
+- [ ] 仍待补生产环境 HTTPS 域名，才能回填：
+  - `websiteUrl`
+  - `supportUrl`
+  - `privacyPolicyUrl`
+  - `iconUrl`

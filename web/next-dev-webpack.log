@@ -1,0 +1,43 @@
+
+> web@0.1.0 dev
+> next dev --webpack
+
+▲ Next.js 16.2.0 (webpack)
+- Local:         http://localhost:3000
+- Network:       http://172.26.0.1:3000
+- Environments: .env.local
+✓ Ready in 672ms
+
+○ Compiling /api/auth/secondme/start ...
+ GET /api/auth/secondme/start 307 in 5.5s (next.js: 5.4s, application-code: 133ms)
+ GET /login 200 in 5.7s (next.js: 5.4s, application-code: 320ms)
+ GET /register 307 in 5.7s (next.js: 5.4s, application-code: 322ms)
+ GET /login 200 in 83ms (next.js: 11ms, application-code: 72ms)
+ GET /api/auth/secondme/start 307 in 19ms (next.js: 3ms, application-code: 16ms)
+ GET /api/auth/secondme/callback?code=lba_ac_ebbea977a68c20bf08f2fb798107c747e605185e9fb50b16dd15000b4d786cce&state=9d880cac-20ce-4ef5-9fab-41d58f7c896a 307 in 2.9s (next.js: 438ms, application-code: 2.4s)
+ GET /login?secondme=success 200 in 153ms (next.js: 42ms, application-code: 111ms)
+ GET /login 200 in 92ms (next.js: 11ms, application-code: 81ms)
+ GET /api/auth/secondme/start 307 in 21ms (next.js: 6ms, application-code: 14ms)
+ GET /api/auth/secondme/callback?code=lba_ac_4d1ba5991abe8ba5acf0835aa5191c0b2db05ac0212b93097d8941b03290df38&state=419ebf3c-e250-4089-9334-0da7d1db932f 200 in 552ms (next.js: 3ms, application-code: 548ms)
+ GET / 200 in 679ms (next.js: 557ms, application-code: 122ms)
+ GET /my-pet 200 in 647ms (next.js: 614ms, application-code: 33ms)
+ GET /create-pet 200 in 573ms (next.js: 531ms, application-code: 42ms)
+ GET /my-pet 200 in 36ms (next.js: 9ms, application-code: 27ms)
+ GET /chat 200 in 595ms (next.js: 562ms, application-code: 33ms)
+ GET / 200 in 27ms (next.js: 6ms, application-code: 21ms)
+ GET /my-pet 200 in 29ms (next.js: 7ms, application-code: 22ms)
+ GET / 200 in 28ms (next.js: 2ms, application-code: 25ms)
+ GET /my-pets 200 in 539ms (next.js: 496ms, application-code: 43ms)
+ GET / 200 in 25ms (next.js: 6ms, application-code: 20ms)
+ GET /social 200 in 581ms (next.js: 543ms, application-code: 37ms)
+ GET / 200 in 33ms (next.js: 6ms, application-code: 26ms)
+ GET /community 200 in 748ms (next.js: 697ms, application-code: 51ms)
+ GET / 200 in 26ms (next.js: 5ms, application-code: 20ms)
+○ Compiling /home ...
+ GET /home 200 in 5.1s (next.js: 5.0s, application-code: 50ms)
+ GET / 200 in 43ms (next.js: 12ms, application-code: 31ms)
+ GET /shop 200 in 802ms (next.js: 755ms, application-code: 47ms)
+ GET / 200 in 27ms (next.js: 5ms, application-code: 21ms)
+ GET /home 200 in 37ms (next.js: 13ms, application-code: 23ms)
+ GET /home 200 in 165ms (next.js: 7ms, application-code: 159ms)
+^C^C
