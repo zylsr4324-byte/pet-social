@@ -1,2 +1,11 @@
 __pycache__/
 *.py[cod]
+.env
+.env.*
+!.env.example
+.secondme/
+.venv-backend-test/
+api/.env
+web/.env.local
+web/next-dev.log
+web/next-dev-webpack.log

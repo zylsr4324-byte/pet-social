@@ -32,6 +32,22 @@ const getRequiredEnv = (name: string) => {
   return value;
 };
 
+const readApiBaseUrl = () => {
+  const configuredValue =
+    process.env.API_BASE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ||
+    DEFAULT_API_BASE_URL;
+
+  if (
+    configuredValue.startsWith("http://") ||
+    configuredValue.startsWith("https://")
+  ) {
+    return configuredValue.replace(/\/$/, "");
+  }
+
+  return new URL(configuredValue, getAppBaseUrl()).toString().replace(/\/$/, "");
+};
+
 const buildLoginUrl = (searchParams?: Record<string, string>) => {
   const loginUrl = new URL("/login", getAppBaseUrl());
 
@@ -168,10 +184,7 @@ export async function GET(request: NextRequest) {
     const clientId = getRequiredEnv("SECONDME_CLIENT_ID");
     const clientSecret = getRequiredEnv("SECONDME_CLIENT_SECRET");
     const redirectUri = getRequiredEnv("SECONDME_REDIRECT_URI");
-    const apiBaseUrl =
-      process.env.API_BASE_URL?.trim() ||
-      process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ||
-      DEFAULT_API_BASE_URL;
+    const apiBaseUrl = readApiBaseUrl();
 
     const tokenBody = new URLSearchParams({
       client_id: clientId,

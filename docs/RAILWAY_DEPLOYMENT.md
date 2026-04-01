@@ -6,6 +6,10 @@ Chinese step-by-step version:
 
 - `docs/RAILWAY_DEPLOYMENT_ZH.md`
 
+If your Railway account can only create 2 services, use:
+
+- `docs/RAILWAY_TWO_SERVICE_DEPLOYMENT_ZH.md`
+
 This is the simplest production deployment path for the current SecondMe app
 submission track.
 

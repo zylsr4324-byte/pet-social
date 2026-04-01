@@ -10,6 +10,7 @@ HTTPS domain. Use it together with:
 - `docs/RAILWAY_DEPLOYMENT.md`
 - `docs/RAILWAY_DEPLOYMENT_ZH.md`
 - `docs/RAILWAY_CONSOLE_CHECKLIST_ZH.md`
+- `docs/RAILWAY_TWO_SERVICE_DEPLOYMENT_ZH.md`
 
 ## 1. Required web environment variables
 
