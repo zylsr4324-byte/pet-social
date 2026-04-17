@@ -230,6 +230,25 @@ class PetSocialRuleTests(unittest.TestCase):
             ),
         )
 
+    def create_social_message(
+        self,
+        *,
+        sender_pet_id: int,
+        content: str,
+        emotion: str | None = None,
+        action: str | None = None,
+        conversation_id: int = 1,
+    ) -> object:
+        return self.pet_social.PetSocialMessage(
+            id=1,
+            conversation_id=conversation_id,
+            sender_pet_id=sender_pet_id,
+            content=content,
+            emotion=emotion,
+            action=action,
+            created_at=datetime(2026, 3, 28, 0, 0, tzinfo=timezone.utc),
+        )
+
     def create_query(self, result: list[object]) -> MagicMock:
         query = MagicMock()
         query.filter.return_value = query
@@ -518,6 +537,225 @@ class PetSocialRuleTests(unittest.TestCase):
 
         self.assertEqual(response.externalTaskId, "task-remote")
         self.assertEqual(response.agentUrl, "https://remote.example/a2a/pets/9")
+
+    def test_build_social_llm_input_includes_relationship_and_rhythm_context(self):
+        target_pet = self.pet_social.Pet(
+            id=2,
+            pet_name="栗子",
+            personality="高冷",
+            species="猫",
+            special_traits="耳朵缺了一小角",
+        )
+        source_pet = self.pet_social.Pet(
+            id=1,
+            pet_name="团子",
+            personality="活泼",
+            species="狗",
+            special_traits="跑得很快",
+        )
+        recent_messages = [
+            self.create_social_message(sender_pet_id=1, content="你好呀"),
+            self.create_social_message(sender_pet_id=2, content="听见了。"),
+            self.create_social_message(sender_pet_id=1, content="你今天在忙什么"),
+            self.create_social_message(sender_pet_id=2, content="晒太阳。"),
+            self.create_social_message(sender_pet_id=1, content="要不要一起玩"),
+            self.create_social_message(sender_pet_id=1, content="我带你去看院子"),
+        ]
+
+        input_messages = self.pet_social.build_social_llm_input(
+            target_pet=target_pet,
+            source_pet=source_pet,
+            recent_messages=recent_messages,
+            latest_input="我带你去看院子",
+            task_type="chat",
+        )
+
+        self.assertEqual(input_messages[0]["role"], "developer")
+        prompt = input_messages[0]["content"]
+        self.assertIn("关系语境", prompt)
+        self.assertIn("你们已经有一点来回互动了", prompt)
+        self.assertIn("对方比较主动", prompt)
+        self.assertIn("你们不是同一种宠物", prompt)
+        self.assertIn("当前关系温度大约是", prompt)
+        self.assertIn("关系摘要：你们已经进入可持续往来的阶段", prompt)
+        self.assertIn("共同记忆：你们最近反复围绕晒太阳、玩、一起互动", prompt)
+        self.assertIn("最近反复出现的话题：晒太阳、玩、一起", prompt)
+        self.assertIn("当前社交状态", prompt)
+        self.assertIn("耳朵缺了一小角", prompt)
+        self.assertIn("互动节奏", prompt)
+        self.assertIn("先接住对方刚刚那句话", prompt)
+        self.assertIn("这轮更像对方在靠近你", prompt)
+        self.assertIn("话题已经持续了一会儿", prompt)
+
+    def test_build_social_candidate_response_includes_relationship_fields(self):
+        current_pet_id = 1
+        candidate_pet = self.pet_social.Pet(
+            id=2,
+            pet_name="栗子",
+            personality="高冷",
+            species="猫",
+            created_at="2026-03-28T00:00:00Z",
+            updated_at="2026-03-28T00:00:00Z",
+        )
+        conversation = self.pet_social.PetConversation(id=5, pet_a_id=1, pet_b_id=2)
+        friendship = self.create_friendship(status="accepted", initiated_by=2)
+        recent_messages = [
+            self.create_social_message(sender_pet_id=1, content="你好"),
+            self.create_social_message(sender_pet_id=2, content="嗯"),
+            self.create_social_message(sender_pet_id=1, content="一起晒太阳吗"),
+        ]
+
+        with patch.object(
+            self.pet_social,
+            "get_friendship_between",
+            return_value=friendship,
+        ), patch.object(
+            self.pet_social,
+            "get_conversation_between",
+            return_value=conversation,
+        ), patch.object(
+            self.pet_social,
+            "read_recent_conversation_slice",
+            return_value=recent_messages,
+        ), patch.object(
+            self.pet_social,
+            "build_pet_response",
+            return_value=candidate_pet,
+        ):
+            response = self.pet_social.build_social_candidate_response(
+                MagicMock(),
+                current_pet_id,
+                candidate_pet,
+            )
+
+        self.assertTrue(response.canChat)
+        self.assertEqual(response.relationshipScore, 69)
+        self.assertIn("已经建立好友关系", response.relationshipSummary)
+        self.assertIn("共同话题", response.memorySummary)
+        self.assertEqual(response.recentTopics, ["晒太阳", "一起"])
+
+    def test_build_friendship_response_includes_relationship_fields(self):
+        current_pet_id = 1
+        counterpart_pet = self.pet_social.Pet(
+            id=2,
+            pet_name="栗子",
+            personality="高冷",
+            species="猫",
+            created_at="2026-03-28T00:00:00Z",
+            updated_at="2026-03-28T00:00:00Z",
+        )
+        conversation = self.pet_social.PetConversation(id=5, pet_a_id=1, pet_b_id=2)
+        friendship = self.create_friendship(status="pending", initiated_by=2)
+        recent_messages = [
+            self.create_social_message(sender_pet_id=2, content="你好呀"),
+        ]
+        last_message = recent_messages[-1]
+
+        with patch.object(
+            self.pet_social,
+            "get_counterpart_pet",
+            return_value=counterpart_pet,
+        ), patch.object(
+            self.pet_social,
+            "get_conversation_between",
+            return_value=conversation,
+        ), patch.object(
+            self.pet_social,
+            "read_last_conversation_message",
+            return_value=last_message,
+        ), patch.object(
+            self.pet_social,
+            "read_recent_conversation_slice",
+            return_value=recent_messages,
+        ), patch.object(
+            self.pet_social,
+            "build_pet_response",
+            return_value=counterpart_pet,
+        ):
+            response = self.pet_social.build_friendship_response(
+                MagicMock(),
+                friendship,
+                current_pet_id,
+            )
+
+        self.assertEqual(response.lastMessagePreview, "你好呀")
+        self.assertEqual(response.relationshipScore, 43)
+        self.assertIn("对方已经先靠近一步", response.relationshipSummary)
+        self.assertIn("不算陌生了", response.memorySummary)
+        self.assertEqual(response.recentTopics, [])
+
+    def test_generate_social_reply_returns_structured_payload(self):
+        target_pet = self.pet_social.Pet(
+            id=2,
+            pet_name="栗子",
+            personality="活泼",
+            species="猫",
+        )
+        source_pet = self.pet_social.Pet(
+            id=1,
+            pet_name="团子",
+            personality="高冷",
+            species="狗",
+        )
+
+        with patch.object(
+            self.pet_social,
+            "request_llm_reply",
+            return_value='{"emotion":"excited","action":"尾巴晃了晃","text":"好呀，我们一起去看看！"}',
+        ):
+            reply = self.pet_social.generate_social_reply(
+                target_pet=target_pet,
+                source_pet=source_pet,
+                recent_messages=[],
+                latest_input="一起去玩吗",
+                task_type="chat",
+            )
+
+        self.assertEqual(reply["emotion"], "excited")
+        self.assertEqual(reply["action"], "尾巴晃了晃")
+        self.assertEqual(reply["text"], "好呀，我们一起去看看！")
+
+    def test_build_social_message_response_includes_event_fields(self):
+        message = self.create_social_message(
+            sender_pet_id=2,
+            content="好呀，我们一起去看看！",
+            emotion="excited",
+            action="尾巴晃了晃",
+        )
+
+        response = self.pet_social.build_social_message_response(message)
+
+        self.assertEqual(response.content, "好呀，我们一起去看看！")
+        self.assertEqual(response.emotion, "excited")
+        self.assertEqual(response.action, "尾巴晃了晃")
+
+    def test_apply_pet_social_presence_persists_normalized_state(self):
+        pet = self.create_pet(2, "栗子")
+        current_time = datetime(2026, 3, 28, 9, 30, tzinfo=timezone.utc)
+
+        self.pet_social.apply_pet_social_presence(
+            pet,
+            emotion=" WARM ",
+            action="抬头蹭了蹭阳光",
+            current_time=current_time,
+        )
+
+        self.assertEqual(pet.social_emotion, "warm")
+        self.assertEqual(pet.social_action, "抬头蹭了蹭阳光")
+        self.assertEqual(pet.social_updated_at, current_time)
+
+    def test_apply_pet_social_presence_falls_back_to_calm_for_unknown_emotion(self):
+        pet = self.create_pet(2, "栗子")
+
+        self.pet_social.apply_pet_social_presence(
+            pet,
+            emotion="unknown",
+            action="   ",
+        )
+
+        self.assertEqual(pet.social_emotion, "calm")
+        self.assertIsNone(pet.social_action)
+        self.assertIsNotNone(pet.social_updated_at)
 
 
 if __name__ == "__main__":

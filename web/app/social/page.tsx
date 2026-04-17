@@ -1,5 +1,4 @@
 "use client";
-
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -28,6 +27,7 @@ import {
   type Friendship,
   type SocialCandidate,
   type SocialConversation,
+  type SocialReplyPayload,
   type SocialTaskHistoryItem,
   isFriendshipActionResponse,
   isFriendshipListResponse,
@@ -37,6 +37,8 @@ import {
   isSocialTaskListResponse,
   sortSocialCandidates,
 } from "../../lib/social";
+import { AppHeaderNav } from "../../lib/AppHeaderNav";
+import { ui } from "../../lib/ui";
 
 const LOAD_FAILURE_MESSAGE = "加载站内社交数据失败，请稍后再试。";
 const ACTION_FAILURE_MESSAGE = "操作失败，请稍后再试。";
@@ -50,6 +52,7 @@ export default function SocialPage() {
   const [tasks, setTasks] = useState<SocialTaskHistoryItem[]>([]);
   const [selectedTargetId, setSelectedTargetId] = useState<number | null>(null);
   const [conversation, setConversation] = useState<SocialConversation | null>(null);
+  const [latestReply, setLatestReply] = useState<SocialReplyPayload | null>(null);
   const [draftMessage, setDraftMessage] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -69,6 +72,7 @@ export default function SocialPage() {
     setTasks([]);
     setSelectedTargetId(null);
     setConversation(null);
+    setLatestReply(null);
     setStatusMessage(LOGIN_REQUIRED_MESSAGE);
   };
 
@@ -186,6 +190,9 @@ export default function SocialPage() {
     setConversation(
       nextTargetId ? await readConversation(activePetId, token, nextTargetId) : null
     );
+    if (!preferredTargetId) {
+      setLatestReply(null);
+    }
   };
 
   useEffect(() => {
@@ -291,7 +298,11 @@ export default function SocialPage() {
       throw new Error(ACTION_FAILURE_MESSAGE);
     }
 
-    await refresh(preferredTargetId);
+    const socialResponse = isSocialSendResponse(data) ? data : null;
+    const nextTargetId = socialResponse?.targetPet.id ?? preferredTargetId;
+
+    await refresh(nextTargetId);
+    setLatestReply(socialResponse?.reply ?? null);
     setStatusMessage(data.message);
   };
 
@@ -372,6 +383,7 @@ export default function SocialPage() {
     }
 
     setSelectedTargetId(targetId);
+    setLatestReply(null);
     try {
       setConversation(await readConversation(petId, authToken, targetId));
     } catch (error) {
@@ -407,44 +419,48 @@ export default function SocialPage() {
   return (
     <main className="min-h-screen bg-white px-6 py-12 text-gray-900">
       <div className="mx-auto max-w-6xl">
-        <div className="mb-8 flex flex-wrap items-center gap-4 text-sm text-gray-500">
-          <Link href="/">返回首页</Link>
-          <Link href="/my-pet">我的宠物</Link>
-          <Link href="/chat">主人聊天</Link>
-        </div>
+        <AppHeaderNav />
 
         <div className="mb-8 flex items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold sm:text-4xl">站内社交引擎</h1>
             <p className="mt-3 text-base leading-7 text-gray-600">
-              当前宠物：{petName || "未选择"}。这里负责 Phase 2.5 的好友关系、站内消息和社交记录。
+              当前宠物：{petName || "未选择"}。在这里处理好友、消息和社交记录。
             </p>
           </div>
-          {authToken && petId ? (
-            <PetSwitcher
-              currentPetId={petId}
-              authToken={authToken}
-              onPetSwitch={handlePetSwitch}
-            />
-          ) : null}
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <Link
+              href="/community"
+              className={`${ui.buttonOutline} px-4 py-2`}
+            >
+              去社区
+            </Link>
+            {authToken && petId ? (
+              <PetSwitcher
+                currentPetId={petId}
+                authToken={authToken}
+                onPetSwitch={handlePetSwitch}
+              />
+            ) : null}
+          </div>
         </div>
 
         <AuthSessionNotice authToken={authToken} className="mb-8" />
 
         {isLoading ? (
-          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-6 text-sm text-gray-600">
+          <div className={`${ui.cardSoft} p-6 text-sm text-gray-600`}>
             正在加载社交数据...
           </div>
         ) : null}
 
         {!isLoading && !authToken ? (
-          <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-sm text-gray-600">
+          <div className={`${ui.cardGhost} p-8 text-sm text-gray-600`}>
             {statusMessage || LOGIN_REQUIRED_MESSAGE}
           </div>
         ) : null}
 
         {!isLoading && authToken && !petId ? (
-          <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-sm text-gray-600">
+          <div className={`${ui.cardGhost} p-8 text-sm text-gray-600`}>
             {statusMessage || "先创建宠物，再回来发起站内社交。"}
           </div>
         ) : null}
@@ -475,6 +491,7 @@ export default function SocialPage() {
                 petName={petName}
                 selectedCandidate={selectedCandidate}
                 conversation={conversation}
+                latestReply={latestReply}
                 draftMessage={draftMessage}
                 isActing={isActing}
                 onDraftMessageChange={setDraftMessage}

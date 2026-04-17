@@ -22,6 +22,7 @@ from app.schemas import (
 from app.services.a2a import create_outbound_a2a_task_for_pet
 from app.services.auth import get_current_user
 from app.services.pet_social import (
+    apply_pet_social_presence,
     build_social_round_result_message,
     build_friend_request_message,
     build_friendship_response,
@@ -375,17 +376,28 @@ def send_social_message(
             db, conversation.id, source_pet.id, input_text
         )
         recent_messages = read_recent_social_messages(db, conversation.id)
-        reply_text = generate_social_reply(
+        reply_payload = generate_social_reply(
             target_pet=target_pet,
             source_pet=source_pet,
             recent_messages=recent_messages,
             latest_input=input_text,
             task_type="chat",
         )
+        reply_text = reply_payload["text"]
         reply_message = create_social_message(
-            db, conversation.id, target_pet.id, reply_text
+            db,
+            conversation.id,
+            target_pet.id,
+            reply_text,
+            emotion=reply_payload["emotion"],
+            action=reply_payload["action"],
         )
         complete_social_task(task, reply_text)
+        apply_pet_social_presence(
+            target_pet,
+            emotion=reply_payload["emotion"],
+            action=reply_payload["action"],
+        )
         db.commit()
     except SQLAlchemyError as error:
         db.rollback()
@@ -399,6 +411,7 @@ def send_social_message(
         task=build_pet_task_response(task),
         sentMessage=build_social_message_response(sent_message),
         replyMessage=build_social_message_response(reply_message),
+        reply=reply_payload,
         conversationId=conversation.id,
         targetPet=build_pet_response(target_pet),
     )
@@ -481,17 +494,28 @@ def run_social_round(
             db, conversation.id, source_pet.id, input_text
         )
         recent_messages = read_recent_social_messages(db, conversation.id)
-        reply_text = generate_social_reply(
+        reply_payload = generate_social_reply(
             target_pet=target_pet,
             source_pet=source_pet,
             recent_messages=recent_messages,
             latest_input=input_text,
             task_type=task_type,
         )
+        reply_text = reply_payload["text"]
         reply_message = create_social_message(
-            db, conversation.id, target_pet.id, reply_text
+            db,
+            conversation.id,
+            target_pet.id,
+            reply_text,
+            emotion=reply_payload["emotion"],
+            action=reply_payload["action"],
         )
         complete_social_task(task, reply_text)
+        apply_pet_social_presence(
+            target_pet,
+            emotion=reply_payload["emotion"],
+            action=reply_payload["action"],
+        )
         db.commit()
     except HTTPException:
         db.rollback()
@@ -508,6 +532,7 @@ def run_social_round(
         task=build_pet_task_response(task),
         sentMessage=build_social_message_response(sent_message),
         replyMessage=build_social_message_response(reply_message),
+        reply=reply_payload,
         conversationId=conversation.id,
         targetPet=build_pet_response(target_pet),
     )

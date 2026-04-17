@@ -47,6 +47,7 @@ import {
   HOME_SCENE_ROOMS,
   HOME_PET_INTERACTION_MENU_ITEMS,
   HOME_SCENE_OBJECTS,
+  type HomeSocialEmotion,
   type HomeRoomId,
   type HomeSceneObjectAction,
   type HomeSceneObjectMeta,
@@ -79,6 +80,8 @@ import {
   getHomeStatusSummaryText,
   type PetStatusViewState,
 } from "../../lib/pet-status-view";
+import { AppHeaderNav } from "../../lib/AppHeaderNav";
+import { ui } from "../../lib/ui";
 
 const PetHomeScene = dynamic(
   () =>
@@ -129,6 +132,19 @@ function clonePlacedFurnitureItems(items: PlacedFurnitureResponse[]) {
     ...item,
     template: { ...item.template },
   }));
+}
+
+function normalizeHomeSocialEmotion(value: string | null): HomeSocialEmotion | null {
+  if (
+    value === "calm" ||
+    value === "curious" ||
+    value === "guarded" ||
+    value === "excited" ||
+    value === "warm"
+  ) {
+    return value;
+  }
+  return null;
 }
 
 export default function HomeScenePage() {
@@ -577,6 +593,7 @@ export default function HomeScenePage() {
             }
           }
         } catch { /* ignore */ }
+
       } catch {
         if (isMounted) {
           setPageStatusNotice(createHomePageNotice(HOME_LOAD_FAILURE_MESSAGE));
@@ -889,23 +906,7 @@ export default function HomeScenePage() {
   return (
     <main className="min-h-screen bg-white px-6 py-12 text-gray-900">
       <div className="mx-auto max-w-7xl">
-        <div className="mb-8 flex flex-wrap items-center gap-4 text-sm text-gray-500">
-          <Link href="/" className="transition hover:text-gray-800">
-            返回首页
-          </Link>
-          <Link href="/my-pet" className="transition hover:text-gray-800">
-            我的宠物
-          </Link>
-          <Link href="/chat" className="transition hover:text-gray-800">
-            宠物聊天
-          </Link>
-          <Link href="/social" className="transition hover:text-gray-800">
-            站内社交
-          </Link>
-          <Link href="/home/furniture" className="transition hover:text-gray-800">
-            家具布置
-          </Link>
-        </div>
+        <AppHeaderNav />
 
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -916,7 +917,7 @@ export default function HomeScenePage() {
               家庭场景主页
             </h1>
             <p className="mt-3 max-w-3xl text-base leading-7 text-gray-600">
-              这是当前宠物的俯视角家庭场景。宠物会根据状态主动走向食盆、水盆或床；点击宠物会先弹出互动菜单，再决定查看状态或直接打开场景内聊天窗口，固定物件则分成“立即互动”和“行为目标点”两类。
+              这里是宠物的家庭场景，可以直接互动、聊天和调整家具。
             </p>
           </div>
 
@@ -932,20 +933,20 @@ export default function HomeScenePage() {
         <AuthSessionNotice authToken={authToken} className="mb-8" />
 
         {!isLoaded ? (
-          <section className="rounded-2xl border border-gray-200 bg-gray-50 p-6 text-sm text-gray-600">
+          <section className={`${ui.cardSoft} p-6 text-sm text-gray-600`}>
             正在加载家庭场景...
           </section>
         ) : null}
 
         {isLoaded && !authToken ? (
-          <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8">
+          <section className={`${ui.cardGhost} p-8`}>
             <h2 className="text-2xl font-semibold text-gray-900">请先登录</h2>
             <p className="mt-3 text-sm leading-7 text-gray-600">
               {pageStatusNotice?.text || LOGIN_REQUIRED_MESSAGE}
             </p>
             <Link
               href="/login"
-              className="mt-6 inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
+              className={`mt-6 ${ui.buttonPrimary}`}
             >
               去登录
             </Link>
@@ -953,7 +954,7 @@ export default function HomeScenePage() {
         ) : null}
 
         {isLoaded && authToken && !pet ? (
-          <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8">
+          <section className={`${ui.cardGhost} p-8`}>
             <h2 className="text-2xl font-semibold text-gray-900">
               还没有家庭场景主角
             </h2>
@@ -962,7 +963,7 @@ export default function HomeScenePage() {
             </p>
             <Link
               href="/create-pet"
-              className="mt-6 inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
+              className={`mt-6 ${ui.buttonPrimary}`}
             >
               去创建宠物
             </Link>
@@ -971,7 +972,7 @@ export default function HomeScenePage() {
 
         {isLoaded && authToken && pet ? (
           <div className="grid gap-6 xl:grid-cols-[1.25fr_0.95fr]">
-            <section className="rounded-[32px] border border-orange-100 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 shadow-sm">
+            <section className={`${ui.cardWarm} p-6`}>
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-amber-700">
@@ -988,7 +989,7 @@ export default function HomeScenePage() {
                 </div>
 
                 {statusDisplayPolicy.showSummaryBadge ? (
-                  <div className="rounded-full border border-white/80 bg-white/90 px-4 py-2 text-xs font-medium text-amber-700 shadow-sm">
+                  <div className={`${ui.chip} px-4 py-2`}>
                     {getHomeStatusSummaryText(status, statusViewState)}
                   </div>
                 ) : null}
@@ -1002,11 +1003,17 @@ export default function HomeScenePage() {
                   petName: p.petName,
                   petSpecies: p.species,
                   petStatus: petStatuses.get(p.id) ?? null,
+                  recentSocialEmotion: normalizeHomeSocialEmotion(
+                    petStatuses.get(p.id)?.socialEmotion ?? null
+                  ),
                 })) : [{
                   id: pet.id,
                   petName: pet.petName,
                   petSpecies: pet.species,
                   petStatus: status,
+                  recentSocialEmotion: normalizeHomeSocialEmotion(
+                    status?.socialEmotion ?? null
+                  ),
                 }]}
                 placedFurniture={placedFurniture}
                 onPlacedFurnitureChange={handleFurnitureDraftChange}
@@ -1016,19 +1023,19 @@ export default function HomeScenePage() {
                 }}
               />
 
-              <div className="mt-4 rounded-2xl bg-white/85 p-3 shadow-sm">
+              <div className={`${ui.cardSoft} mt-4 bg-white/85 p-3 shadow-sm`}>
                 <div className="flex flex-wrap gap-2">
                   {HOME_SCENE_ROOMS.map((room) => (
                     <button
                       key={room.id}
                       type="button"
                       onClick={() => setCurrentRoom(room.id)}
-                      className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                        room.id === currentRoom
-                          ? "bg-amber-600 text-white shadow-sm"
-                          : "bg-orange-50 text-amber-800 hover:bg-orange-100"
-                      }`}
-                    >
+                    className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                      room.id === currentRoom
+                        ? "bg-stone-900 text-white shadow-sm"
+                        : "bg-[#f6ebda] text-[#7b4b22] hover:bg-[#eedec5]"
+                    }`}
+                  >
                       {room.label}
                     </button>
                   ))}
@@ -1039,7 +1046,7 @@ export default function HomeScenePage() {
                 {SCENE_OBJECT_ENTRIES.map(([action, item]) => (
                   <div
                     key={action}
-                    className="rounded-2xl bg-white/80 p-4 text-sm text-gray-600 shadow-sm"
+                    className={`${ui.cardSoft} bg-white/80 p-4 text-sm text-gray-600 shadow-sm`}
                   >
                     <div className="flex items-center justify-between gap-3">
                       <p className="font-medium text-gray-900">{item.label}</p>
@@ -1072,7 +1079,7 @@ export default function HomeScenePage() {
             </section>
 
             <div className="space-y-6">
-              <section className="rounded-[32px] border border-orange-100 bg-white p-6 shadow-sm">
+              <section className={`${ui.card} p-6`}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold text-gray-900">
@@ -1090,10 +1097,10 @@ export default function HomeScenePage() {
                         void handleFurnitureEditToggle();
                       }}
                       disabled={isFurnitureLayoutSaving}
-                      className={`rounded-lg px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                      className={`rounded-xl px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
                         isFurnitureEditMode
-                          ? "bg-amber-600 text-white hover:bg-amber-500"
-                          : "border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                          ? "bg-stone-900 text-white hover:bg-stone-700"
+                          : "border border-[#d7c6b1] bg-[#f6ebda] text-[#7b4b22] hover:bg-[#eedec5]"
                       }`}
                     >
                       {isFurnitureLayoutSaving
@@ -1109,7 +1116,7 @@ export default function HomeScenePage() {
                           currentPanel === "status" ? null : "status"
                         )
                       }
-                      className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:border-gray-400 hover:text-gray-900"
+                      className={`${ui.buttonOutline} px-4 py-2`}
                     >
                       {isPetPanelOpen ? "收起状态面板" : "打开状态面板"}
                     </button>
@@ -1124,14 +1131,14 @@ export default function HomeScenePage() {
                         setIsHomeChatLoaded(false);
                         setActivePetPanel("chat");
                       }}
-                      className="inline-flex rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-700"
+                      className={`${ui.buttonPrimary} px-4 py-2`}
                     >
                       {isHomeChatOpen ? "收起聊天窗口" : `和 ${pet.petName} 聊天`}
                     </button>
                   </div>
                 </div>
 
-                <div className="mt-4 rounded-2xl bg-gray-50 p-4 text-sm leading-7 text-gray-600">
+                <div className={`${ui.cardSoft} mt-4 p-4 text-sm leading-7 text-gray-600`}>
                   <p>
                     房间切换：通过场景下方标签在客厅、卧室、厨房之间切换，当前显示 {currentRoomMeta.label}。
                   </p>
@@ -1141,14 +1148,14 @@ export default function HomeScenePage() {
                 </div>
 
                 <div className="mt-4 grid gap-3 text-sm leading-7 text-gray-600 md:grid-cols-2">
-                  <div className="rounded-2xl bg-gray-50 p-4">
+                  <div className={`${ui.cardSoft} p-4`}>
                     <p className="font-medium text-gray-900">立即互动</p>
                     <p className="mt-2">
                       {INSTANT_OBJECT_LABELS}
                       会在点击后马上调用后端接口，属于直接结算当前动作的交互点。
                     </p>
                   </div>
-                  <div className="rounded-2xl bg-gray-50 p-4">
+                  <div className={`${ui.cardSoft} p-4`}>
                     <p className="font-medium text-gray-900">行为目标点</p>
                     <p className="mt-2">
                       {TARGET_OBJECT_LABELS}
@@ -1159,7 +1166,7 @@ export default function HomeScenePage() {
               </section>
 
               {isPetMenuOpen ? (
-                <section className="rounded-[32px] border border-orange-100 bg-white p-6 shadow-sm">
+                <section className={`${ui.card} p-6`}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h2 className="text-xl font-semibold text-gray-900">
@@ -1173,7 +1180,7 @@ export default function HomeScenePage() {
                     <button
                       type="button"
                       onClick={() => setIsPetMenuOpen(false)}
-                      className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:border-gray-400 hover:text-gray-900"
+                      className={`${ui.buttonOutline} px-4 py-2`}
                     >
                       收起菜单
                     </button>
@@ -1224,7 +1231,7 @@ export default function HomeScenePage() {
                   onStatusChange={applyStatusSnapshot}
                 />
               ) : isHomeChatOpen ? (
-                <section className="rounded-[32px] border border-orange-100 bg-white p-6 shadow-sm">
+                <section className={`${ui.card} p-6`}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h2 className="text-xl font-semibold text-gray-900">
@@ -1238,7 +1245,7 @@ export default function HomeScenePage() {
                     <button
                       type="button"
                       onClick={() => setActivePetPanel(null)}
-                      className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:border-gray-400 hover:text-gray-900"
+                      className={`${ui.buttonOutline} px-4 py-2`}
                     >
                       收起聊天窗口
                     </button>
@@ -1248,8 +1255,8 @@ export default function HomeScenePage() {
                     <div
                       className={`mt-4 rounded-2xl border px-4 py-3 text-sm leading-6 ${
                         homeChatStatusMessage.type === "error"
-                          ? "border-rose-200 bg-rose-50 text-rose-700"
-                          : "border-amber-200 bg-amber-50 text-amber-700"
+                        ? ui.noticeError
+                        : ui.noticeInfo
                       }`}
                     >
                       {homeChatStatusMessage.message}
@@ -1258,7 +1265,7 @@ export default function HomeScenePage() {
 
                   <div
                     ref={chatMessagesContainerRef}
-                    className="mt-4 h-[320px] overflow-y-auto rounded-2xl bg-gray-50 p-4"
+                    className={`mt-4 h-[320px] overflow-y-auto ${ui.cardSoft} p-4`}
                   >
                     {isHomeChatLoading ? (
                       <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white/70 px-6 text-center text-sm leading-6 text-gray-500">
@@ -1299,7 +1306,7 @@ export default function HomeScenePage() {
 
                   <form
                     onSubmit={handleHomeChatSubmit}
-                    className="mt-4 rounded-2xl border border-gray-200 bg-white p-4"
+                    className={`mt-4 ${ui.cardSoft} bg-white p-4`}
                   >
                     <label
                       htmlFor="home-scene-chat-message"
@@ -1316,12 +1323,12 @@ export default function HomeScenePage() {
                         onKeyDown={handleHomeChatInputKeyDown}
                         placeholder="例如：今天想做什么？"
                         disabled={isHomeChatLoading || isHomeChatSending}
-                        className="flex-1 rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500 disabled:cursor-not-allowed disabled:opacity-60"
+                        className={`flex-1 ${ui.input}`}
                       />
                       <button
                         type="submit"
                         disabled={!canSendHomeChatMessage}
-                        className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        className={ui.buttonPrimary}
                       >
                         {isHomeChatSending ? "发送中..." : "发送"}
                       </button>
@@ -1329,12 +1336,12 @@ export default function HomeScenePage() {
                   </form>
                 </section>
               ) : (
-                <section className="rounded-[32px] border border-dashed border-gray-200 bg-gray-50 p-6 text-sm leading-7 text-gray-500">
+                <section className={`${ui.cardGhost} p-6 text-sm leading-7 text-gray-500`}>
                   点击场景里的宠物会先弹出互动菜单；你可以从菜单里选择查看状态，或直接打开场景内聊天窗口。
                 </section>
               )}
 
-              <section className="rounded-[32px] border border-orange-100 bg-white p-6 shadow-sm">
+              <section className={`${ui.card} p-6`}>
                 <h2 className="text-xl font-semibold text-gray-900">
                   独立页面入口
                 </h2>
@@ -1344,19 +1351,19 @@ export default function HomeScenePage() {
                 <div className="mt-4 flex flex-wrap gap-3">
                   <Link
                     href="/chat"
-                    className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
+                    className={ui.buttonPrimary}
                   >
                     去聊天窗口
                   </Link>
                   <Link
                     href="/my-pet"
-                    className="inline-flex rounded-lg bg-amber-100 px-5 py-3 text-sm font-medium text-amber-800 transition hover:bg-amber-200"
+                    className={ui.buttonSecondary}
                   >
                     查看宠物资料
                   </Link>
                   <Link
                     href="/social"
-                    className="inline-flex rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-700 transition hover:border-gray-400 hover:text-gray-900"
+                    className={ui.buttonOutline}
                   >
                     去站内社交
                   </Link>

@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -28,7 +30,19 @@ _MOOD_PROMPT: dict[str, str] = {
 }
 
 
-def _build_mood_context(pet: Pet) -> str:
+def _get_elapsed_hint(timestamp: object) -> float | None:
+    if not isinstance(timestamp, datetime):
+        return None
+
+    normalized_timestamp = (
+        timestamp.replace(tzinfo=timezone.utc)
+        if timestamp.tzinfo is None
+        else timestamp.astimezone(timezone.utc)
+    )
+    return (datetime.now(timezone.utc) - normalized_timestamp).total_seconds() / 3600
+
+
+def _build_life_context(pet: Pet) -> str:
     projected = project_current_stats(pet)
     mood = calculate_mood(
         projected["fullness"],
@@ -37,10 +51,68 @@ def _build_mood_context(pet: Pet) -> str:
         projected["cleanliness"],
         projected["affection"],
     )
-    prompt = _MOOD_PROMPT.get(mood, "")
-    if not prompt:
-        return ""
-    return f"\n当前状态\n{prompt}"
+
+    lines = ["生活语境"]
+    mood_prompt = _MOOD_PROMPT.get(mood, "")
+    if mood_prompt:
+        lines.append(f"- {mood_prompt}")
+
+    if projected["fullness"] < 35 and projected["hydration"] < 35:
+        lines.append("- 你现在又饿又渴，耐心会短一点，更想先解决生理需求。")
+    elif projected["fullness"] < 35:
+        lines.append("- 你有点饿，容易先惦记吃的，再决定要不要多聊。")
+    elif projected["hydration"] < 35:
+        lines.append("- 你有点渴，回复会更像顺手应一声，不会太兴奋。")
+
+    if projected["energy"] < 30:
+        lines.append("- 你现在有点没精神，回复更短，动作也更懒一点。")
+    elif projected["energy"] > 75:
+        lines.append("- 你现在精神不错，容易接话，也可能主动靠近主人。")
+
+    if projected["cleanliness"] < 30:
+        lines.append("- 你觉得自己身上有点脏，不喜欢被过分折腾。")
+
+    if projected["affection"] >= 75:
+        lines.append("- 你已经很信任主人了，亲近会更自然。")
+    elif projected["affection"] <= 35:
+        lines.append("- 你还在观察主人，不会一下子表现得特别黏。")
+
+    hours_since_interaction = _get_elapsed_hint(getattr(pet, "last_interaction_at", None))
+    if hours_since_interaction is not None and hours_since_interaction <= 1:
+        lines.append("- 主人刚和你互动过，你不用每句都重新试探。")
+    elif hours_since_interaction is not None and hours_since_interaction >= 24:
+        lines.append("- 你有一阵子没被注意到了，可能会更想确认对方有没有在意你。")
+
+    hours_since_fed = _get_elapsed_hint(getattr(pet, "last_fed_at", None))
+    if hours_since_fed is not None and hours_since_fed >= 12 and projected["fullness"] < 60:
+        lines.append("- 你会惦记上一次进食已经过去一阵子了。")
+
+    return "\n".join(lines)
+
+
+def _build_conversation_rhythm_context(recent_messages: list[Message]) -> str:
+    lines = ["对话节奏"]
+
+    if not recent_messages:
+        lines.append("- 这是刚开口的一轮，先自然接住对方，不要立刻背设定。")
+        return "\n".join(lines)
+
+    last_message = recent_messages[-1]
+    if last_message.role == "user":
+        lines.append("- 先回应主人刚刚这句话本身，不要答非所问。")
+
+    if len(recent_messages) >= 4:
+        lines.append("- 你们已经来回聊了几轮，语气可以更顺着上文，不要每次都像第一次见面。")
+
+    user_turns = sum(1 for message in recent_messages if message.role == "user")
+    pet_turns = sum(1 for message in recent_messages if message.role == "pet")
+
+    if user_turns > pet_turns:
+        lines.append("- 这轮是主人更主动，你只要接住情绪或话题，不必抢着主导。")
+    elif pet_turns > user_turns + 1:
+        lines.append("- 你最近已经说了不少，这次更像补一句自然反应。")
+
+    return "\n".join(lines)
 
 
 def read_recent_messages_for_prompt(
@@ -68,7 +140,8 @@ def build_llm_input(
         "不要提到 system、prompt、模型、AI、助手。\n\n"
         f"{build_pet_profile_summary(pet)}\n\n"
         f"{build_personality_style_rules(pet, strict_mode)}"
-        f"{_build_mood_context(pet)}\n\n"
+        f"{_build_life_context(pet)}\n\n"
+        f"{_build_conversation_rhythm_context(recent_messages)}\n\n"
         f"{build_turn_specific_guard(pet, latest_user_message, strict_mode)}"
     )
 

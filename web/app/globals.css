@@ -24,3 +24,84 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@keyframes social-calm-breathe {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes social-curious-tilt {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  45% {
+    transform: rotate(-0.7deg) translateY(-1px);
+  }
+}
+
+@keyframes social-guarded-hold {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  40% {
+    transform: translateX(-1px);
+  }
+}
+
+@keyframes social-excited-bounce {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  35% {
+    transform: translateY(-2px) scale(1.01);
+  }
+}
+
+@keyframes social-warm-glow {
+  0%,
+  100% {
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+  }
+  50% {
+    box-shadow: 0 10px 30px rgb(245 158 11 / 0.18);
+  }
+}
+
+.social-motion-calm {
+  animation: social-calm-breathe 4s ease-in-out infinite;
+}
+
+.social-motion-curious {
+  animation: social-curious-tilt 3.6s ease-in-out infinite;
+  transform-origin: 18% 80%;
+}
+
+.social-motion-guarded {
+  animation: social-guarded-hold 5s ease-in-out infinite;
+}
+
+.social-motion-excited {
+  animation: social-excited-bounce 2.2s ease-in-out infinite;
+}
+
+.social-motion-warm {
+  animation: social-warm-glow 3.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .social-motion-calm,
+  .social-motion-curious,
+  .social-motion-guarded,
+  .social-motion-excited,
+  .social-motion-warm {
+    animation: none;
+  }
+}

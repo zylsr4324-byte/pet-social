@@ -114,6 +114,9 @@ class PetStatusResponse(BaseModel):
     energy: int
     cleanliness: int
     mood: str
+    socialEmotion: str | None = None
+    socialAction: str | None = None
+    socialUpdatedAt: datetime | None = None
 
 
 class PetActionResponse(BaseModel):
@@ -155,6 +158,8 @@ class SocialMessageResponse(BaseModel):
     conversationId: int
     senderPetId: int
     content: str
+    emotion: str | None = None
+    action: str | None = None
     createdAt: datetime
 
 
@@ -176,6 +181,10 @@ class FriendshipResponse(BaseModel):
     direction: str
     conversationId: int | None
     lastMessagePreview: str | None
+    relationshipScore: int
+    relationshipSummary: str
+    memorySummary: str
+    recentTopics: list[str]
     createdAt: datetime
     acceptedAt: datetime | None
 
@@ -197,6 +206,10 @@ class SocialCandidateResponse(BaseModel):
     conversationId: int | None
     canRequest: bool
     canChat: bool
+    relationshipScore: int
+    relationshipSummary: str
+    memorySummary: str
+    recentTopics: list[str]
 
 
 class SocialCandidateListResponse(BaseModel):
@@ -214,11 +227,18 @@ class SocialTaskListResponse(BaseModel):
     tasks: list[SocialTaskHistoryItemResponse]
 
 
+class SocialReplyPayload(BaseModel):
+    emotion: str
+    action: str
+    text: str
+
+
 class SocialSendResponse(BaseModel):
     message: str
     task: PetTaskResponse
     sentMessage: SocialMessageResponse
     replyMessage: SocialMessageResponse
+    reply: SocialReplyPayload
     conversationId: int
     targetPet: PetResponse
 
@@ -241,6 +261,7 @@ class SocialRoundResponse(BaseModel):
     task: PetTaskResponse
     sentMessage: SocialMessageResponse
     replyMessage: SocialMessageResponse
+    reply: SocialReplyPayload
     conversationId: int
     targetPet: PetResponse
 

@@ -43,6 +43,8 @@ import {
   isPetStatus,
 } from "../../lib/PetStatusPanel";
 import { type PetStatusViewState } from "../../lib/pet-status-view";
+import { AppHeaderNav } from "../../lib/AppHeaderNav";
+import { ui } from "../../lib/ui";
 
 export default function MyPetPage() {
   const [pet, setPet] = useState<PetProfile | null>(null);
@@ -449,22 +451,13 @@ export default function MyPetPage() {
   return (
     <main className="min-h-screen bg-white px-6 py-12 text-gray-900">
       <div className="mx-auto max-w-4xl">
-        <div className="mb-8 flex flex-wrap items-center gap-4 text-sm text-gray-500">
-          <Link href="/" className="transition hover:text-gray-800">
-            ← 返回首页
-          </Link>
-          <Link href="/create-pet" className="transition hover:text-gray-800">
-            去创建宠物
-          </Link>
-        </div>
+        <AppHeaderNav />
 
         <div className="mb-8">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold sm:text-4xl">我的宠物</h1>
-              <p className="mt-3 text-base leading-7 text-gray-600">
-                这里会展示你已经保存下来的宠物资料。
-              </p>
+              <p className="mt-3 text-base leading-7 text-gray-600">查看当前宠物资料和状态。</p>
             </div>
             {authToken && petId && (
               <PetSwitcher
@@ -479,7 +472,7 @@ export default function MyPetPage() {
         <AuthSessionNotice authToken={authToken} className="mb-8" />
 
         {!isLoaded ? (
-          <section className="rounded-2xl border border-gray-200 bg-gray-50 p-6 shadow-sm">
+          <section className={`${ui.cardSoft} p-6 shadow-sm`}>
             <p className="text-sm leading-6 text-gray-600">
               正在读取宠物资料，请稍等一下。
             </p>
@@ -487,7 +480,7 @@ export default function MyPetPage() {
         ) : null}
 
         {isLoaded && !pet ? (
-          <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 shadow-sm">
+          <section className={`${ui.cardGhost} p-8 shadow-sm`}>
             <h2 className="text-2xl font-semibold text-gray-900">
               {pageEmptyStateTitle}
             </h2>
@@ -498,19 +491,16 @@ export default function MyPetPage() {
             <div className="mt-6">
               <Link
                 href={authToken ? "/create-pet" : "/login"}
-                className="relative inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-transparent transition hover:bg-gray-700"
+                className={ui.buttonPrimary}
               >
-                <span className="absolute inset-0 flex items-center justify-center text-white">
-                  {authToken ? "去创建宠物" : "去登录"}
-                </span>
-                去创建宠物
+                {authToken ? "去创建宠物" : "去登录"}
               </Link>
             </div>
           </section>
         ) : null}
 
         {isLoaded && pet ? (
-          <section className="rounded-[28px] border border-orange-100 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 shadow-sm">
+          <section className={`${ui.cardWarm} p-6`}>
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-semibold text-gray-900">
@@ -521,12 +511,12 @@ export default function MyPetPage() {
                 </p>
               </div>
 
-              <div className="rounded-full border border-white/80 bg-white/90 px-3 py-1 text-xs font-medium text-amber-700 shadow-sm">
+              <div className={ui.chip}>
                 后端已同步
               </div>
             </div>
 
-            <div className="mt-6 overflow-hidden rounded-[28px] border border-orange-100 bg-white shadow-[0_20px_60px_-24px_rgba(180,83,9,0.35)]">
+            <div className={`mt-6 overflow-hidden ${ui.cardInset}`}>
               <div className="bg-gradient-to-br from-orange-100 via-amber-50 to-white p-6">
                 <div className="flex items-start gap-4">
                   <div className="flex flex-col items-center">
@@ -661,14 +651,14 @@ export default function MyPetPage() {
                   />
                 )}
 
-                <div className="rounded-2xl bg-gray-50 p-4">
+                <div className={`${ui.cardSoft} p-4`}>
                   <p className="text-sm font-medium text-gray-900">性格摘要</p>
                   <p className="mt-3 text-sm leading-7 text-gray-600">
                     {petCardPersonality}
                   </p>
                 </div>
 
-                <div className="rounded-2xl bg-gray-50 p-4">
+                <div className={`${ui.cardSoft} p-4`}>
                   <p className="text-sm font-medium text-gray-900">
                     特殊特征摘要
                   </p>
@@ -677,7 +667,7 @@ export default function MyPetPage() {
                   </p>
                 </div>
 
-                <div className="rounded-2xl bg-gray-50 p-4">
+                <div className={`${ui.cardSoft} p-4`}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-medium text-gray-900">
@@ -690,7 +680,7 @@ export default function MyPetPage() {
 
                     <Link
                       href="/chat"
-                      className="text-sm font-medium text-amber-700 transition hover:text-amber-800"
+                      className={ui.buttonSubtle}
                     >
                       去聊天 →
                     </Link>
@@ -713,11 +703,11 @@ export default function MyPetPage() {
                       ))}
                     </div>
                   ) : recentChatStatus ? (
-                    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-700">
+                    <div className={`mt-4 ${ui.noticeInfo}`}>
                       {recentChatStatus}
                     </div>
                   ) : (
-                    <div className="mt-4 rounded-2xl border border-dashed border-gray-200 bg-white/80 px-4 py-6 text-sm leading-6 text-gray-500">
+                    <div className={`mt-4 ${ui.cardGhost} bg-white/80 px-4 py-6 text-sm leading-6 text-gray-500`}>
                       你们还没有聊过天，快去和它打个招呼吧。
                     </div>
                   )}
@@ -726,14 +716,14 @@ export default function MyPetPage() {
                 <div className="flex flex-wrap items-center gap-3">
                   <Link
                     href="/create-pet"
-                    className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
+                    className={ui.buttonPrimary}
                   >
                     编辑我的宠物
                   </Link>
 
                   <Link
                     href="/chat"
-                    className="inline-flex rounded-lg bg-amber-100 px-5 py-3 text-sm font-medium text-amber-800 transition hover:bg-amber-200"
+                    className={ui.buttonSecondary}
                   >
                     去和它聊天
                   </Link>

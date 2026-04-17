@@ -58,6 +58,10 @@ class SocialRouteTests(unittest.TestCase):
             "direction": "accepted",
             "conversationId": 5,
             "lastMessagePreview": "hello",
+            "relationshipScore": 78,
+            "relationshipSummary": "已经建立好友关系，可以稳定来往。",
+            "memorySummary": "你们最近反复围绕玩互动，已经有一点共同话题。",
+            "recentTopics": ["玩"],
             "createdAt": "2026-03-29T00:00:00Z",
             "acceptedAt": "2026-03-29T00:01:00Z",
         }
@@ -175,6 +179,10 @@ class SocialRouteTests(unittest.TestCase):
             "direction": "outgoing",
             "conversationId": 5,
             "lastMessagePreview": "hello",
+            "relationshipScore": 34,
+            "relationshipSummary": "你这边已经主动靠近了，接下来要看对方是否愿意接住。",
+            "memorySummary": "你们之间还没有形成明确的共同记忆。",
+            "recentTopics": [],
             "createdAt": "2026-03-30T00:00:00Z",
             "acceptedAt": None,
         }
@@ -239,6 +247,135 @@ class SocialRouteTests(unittest.TestCase):
             "当前宠物今天已达到5次主动社交上限，请明天再试。",
         )
         mock_choose_target.assert_not_called()
+
+    def test_send_social_message_route_persists_structured_reply_event(self):
+        self.db = SimpleNamespace(commit=MagicMock(), rollback=MagicMock())
+        source_pet = SimpleNamespace(id=7, pet_name="团子")
+        target_pet = SimpleNamespace(id=9, pet_name="栗子")
+        friendship = SimpleNamespace(status="accepted")
+        conversation = SimpleNamespace(id=5)
+        task = SimpleNamespace(id=11)
+        sent_message = SimpleNamespace(
+            id=21,
+            conversation_id=5,
+            sender_pet_id=7,
+            content="一起晒太阳吗",
+            emotion=None,
+            action=None,
+            created_at=datetime(2026, 3, 29, 0, 0, tzinfo=timezone.utc),
+        )
+        reply_message = SimpleNamespace(
+            id=22,
+            conversation_id=5,
+            sender_pet_id=9,
+            content="好呀，我先找个暖和的位置。",
+            emotion="warm",
+            action="抬头蹭了蹭阳光",
+            created_at=datetime(2026, 3, 29, 0, 0, 5, tzinfo=timezone.utc),
+        )
+        task_payload = {
+            "id": 11,
+            "targetPetId": 9,
+            "sourcePetId": 7,
+            "taskType": "chat",
+            "state": "completed",
+            "inputText": "一起晒太阳吗",
+            "outputText": "好呀，我先找个暖和的位置。",
+            "externalTaskId": None,
+            "agentUrl": None,
+            "createdAt": "2026-03-29T00:00:00Z",
+            "completedAt": "2026-03-29T00:00:05Z",
+        }
+        target_pet_payload = {
+            "id": 9,
+            "petName": "栗子",
+            "species": "猫",
+            "color": "橘色",
+            "size": "小型",
+            "personality": "亲人",
+            "specialTraits": "",
+            "createdAt": "2026-03-29T00:00:00Z",
+            "updatedAt": "2026-03-29T00:00:00Z",
+        }
+        reply_payload = {
+            "emotion": "warm",
+            "action": "抬头蹭了蹭阳光",
+            "text": "好呀，我先找个暖和的位置。",
+        }
+
+        with patch(
+            "app.api.routes.social.get_owned_pet_or_404",
+            return_value=source_pet,
+        ), patch(
+            "app.api.routes.social.get_pet_or_404",
+            return_value=target_pet,
+        ), patch(
+            "app.api.routes.social.get_friendship_between",
+            return_value=friendship,
+        ), patch(
+            "app.api.routes.social.get_or_create_conversation",
+            return_value=conversation,
+        ), patch(
+            "app.api.routes.social.create_social_task",
+            return_value=task,
+        ), patch(
+            "app.api.routes.social.create_social_message",
+            side_effect=[sent_message, reply_message],
+        ) as mock_create_social_message, patch(
+            "app.api.routes.social.read_recent_social_messages",
+            return_value=[sent_message],
+        ), patch(
+            "app.api.routes.social.generate_social_reply",
+            return_value=reply_payload,
+        ), patch(
+            "app.api.routes.social.complete_social_task",
+        ) as mock_complete_social_task, patch(
+            "app.api.routes.social.apply_pet_social_presence",
+        ) as mock_apply_social_presence, patch(
+            "app.api.routes.social.build_pet_task_response",
+            return_value=task_payload,
+        ), patch(
+            "app.api.routes.social.build_pet_response",
+            return_value=target_pet_payload,
+        ):
+            response = self.client.post(
+                "/pets/7/social/send",
+                json={"targetPetId": 9, "message": "一起晒太阳吗"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["reply"], reply_payload)
+        self.assertEqual(payload["sentMessage"]["emotion"], None)
+        self.assertEqual(payload["sentMessage"]["action"], None)
+        self.assertEqual(payload["replyMessage"]["emotion"], "warm")
+        self.assertEqual(payload["replyMessage"]["action"], "抬头蹭了蹭阳光")
+        self.assertEqual(mock_create_social_message.call_count, 2)
+        mock_create_social_message.assert_any_call(
+            self.db,
+            5,
+            7,
+            "一起晒太阳吗",
+        )
+        mock_create_social_message.assert_any_call(
+            self.db,
+            5,
+            9,
+            "好呀，我先找个暖和的位置。",
+            emotion="warm",
+            action="抬头蹭了蹭阳光",
+        )
+        mock_complete_social_task.assert_called_once_with(
+            task,
+            "好呀，我先找个暖和的位置。",
+        )
+        mock_apply_social_presence.assert_called_once_with(
+            target_pet,
+            emotion="warm",
+            action="抬头蹭了蹭阳光",
+        )
+        self.db.commit.assert_called_once()
+        self.db.rollback.assert_not_called()
 
     def test_send_external_a2a_message_route_dispatches_and_returns_task_summary(self):
         source_pet = SimpleNamespace(id=7)

@@ -1,15 +1,18 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { buildAuthHeaders, readStoredAuthToken } from "../../lib/auth";
-import { API_BASE_URL, LOGIN_REQUIRED_MESSAGE } from "../../lib/constants";
 import {
   CATEGORY_LABELS,
   SPRITE_EMOJI,
   type FurnitureTemplate,
 } from "../../lib/furniture";
+import { AppHeaderNav } from "../../lib/AppHeaderNav";
+import { ui } from "../../lib/ui";
+
+const API_BASE_URL = "http://localhost:8000";
 
 type ShopInventoryItem = {
   id: number;
@@ -116,7 +119,10 @@ function isShopPurchaseResponse(value: unknown): value is ShopPurchaseResponse {
   );
 }
 
-async function getResponseErrorMessage(response: Response, fallbackMessage: string) {
+async function getResponseErrorMessage(
+  response: Response,
+  fallbackMessage: string
+) {
   try {
     const data: unknown = await response.json();
     if (
@@ -135,6 +141,7 @@ async function getResponseErrorMessage(response: Response, fallbackMessage: stri
 }
 
 export default function ShopPage() {
+  const router = useRouter();
   const [coins, setCoins] = useState<number | null>(null);
   const [items, setItems] = useState<ShopItem[]>([]);
   const [inventory, setInventory] = useState<ShopInventoryItem[]>([]);
@@ -145,7 +152,7 @@ export default function ShopPage() {
   useEffect(() => {
     const token = readStoredAuthToken();
     if (!token) {
-      setError(LOGIN_REQUIRED_MESSAGE);
+      router.replace("/?next=/shop");
       return;
     }
 
@@ -157,13 +164,13 @@ export default function ShopPage() {
         });
 
         if (!response.ok) {
-          setError(await getResponseErrorMessage(response, "加载商店失败，请稍后再试。"));
+          setError(await getResponseErrorMessage(response, "加载商店失败。"));
           return;
         }
 
         const data: unknown = await response.json();
         if (!isShopCatalogResponse(data)) {
-          setError("商店返回的数据格式不正确。");
+          setError("商店数据格式不正确。");
           return;
         }
 
@@ -171,17 +178,17 @@ export default function ShopPage() {
         setItems(data.items);
         setInventory(data.inventory);
       } catch {
-        setError("加载商店失败，请稍后再试。");
+        setError("加载商店失败。");
       }
     };
 
     void loadShop();
-  }, []);
+  }, [router]);
 
   const handlePurchase = async (templateId: number) => {
     const token = readStoredAuthToken();
     if (!token) {
-      setError(LOGIN_REQUIRED_MESSAGE);
+      router.replace("/?next=/shop");
       return;
     }
 
@@ -196,13 +203,13 @@ export default function ShopPage() {
       });
 
       if (!response.ok) {
-        setError(await getResponseErrorMessage(response, "购买失败，请稍后再试。"));
+        setError(await getResponseErrorMessage(response, "购买失败。"));
         return;
       }
 
       const data: unknown = await response.json();
       if (!isShopPurchaseResponse(data)) {
-        setError("购买返回的数据格式不正确。");
+        setError("购买结果格式不正确。");
         return;
       }
 
@@ -226,74 +233,67 @@ export default function ShopPage() {
       setNotice(data.message);
       setError(null);
     } catch {
-      setError("购买失败，请稍后再试。");
+      setError("购买失败。");
     } finally {
       setBuyingTemplateId(null);
     }
   };
 
-  if (error && coins === null) {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center bg-[#fff7ed] p-6">
-        <p className="mb-4 text-sm text-rose-600">{error}</p>
-        <Link href="/login" className="text-sm text-amber-700 underline">
-          前往登录
-        </Link>
-      </main>
-    );
-  }
-
   return (
     <main className="min-h-screen bg-[#fff7ed] p-6 text-gray-900">
       <div className="mx-auto max-w-5xl">
+        <AppHeaderNav />
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <Link href="/" className="text-sm text-amber-700 transition hover:text-amber-900">
-              ← 返回首页
-            </Link>
-            <h1 className="mt-2 text-3xl font-semibold text-amber-950">家具商店</h1>
-            <p className="mt-2 text-sm leading-6 text-amber-800">
-              基础家具默认赠送；其余家具可以用金币购买，购买后会进入下方家具库。
-            </p>
+            <h1 className="text-3xl font-semibold text-amber-950">
+              家具商店
+            </h1>
           </div>
 
-          <div className="rounded-2xl border border-amber-200 bg-white px-5 py-4 shadow-sm">
-            <p className="text-xs font-medium tracking-[0.2em] text-amber-500">COINS</p>
-            <p className="mt-2 text-3xl font-semibold text-amber-900">{coins ?? "--"}</p>
+          <div className={`${ui.card} rounded-2xl px-5 py-4`}>
+            <p className="text-xs font-medium tracking-[0.2em] text-amber-500">
+              COINS
+            </p>
+            <p className="mt-2 text-3xl font-semibold text-amber-900">
+              {coins ?? "--"}
+            </p>
           </div>
         </div>
 
         {notice ? (
-          <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          <div className={`mb-4 ${ui.noticeSuccess}`}>
             {notice}
           </div>
         ) : null}
 
         {error && coins !== null ? (
-          <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <div className={`mb-4 ${ui.noticeError}`}>
             {error}
           </div>
         ) : null}
 
-        <section className="rounded-[28px] border border-orange-100 bg-white p-6 shadow-sm">
+        <section className={`${ui.card} p-6`}>
           <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-xl font-semibold text-gray-900">商品列表</h2>
-            <p className="text-sm text-gray-500">可浏览全部家具及价格</p>
+            <h2 className="text-xl font-semibold text-gray-900">商品</h2>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {items.map((item) => (
               <article
                 key={item.template.id}
-                className="rounded-3xl border border-orange-100 bg-[#fffaf4] p-4 shadow-sm"
+                className={`${ui.cardSoft} rounded-[26px] border-[#f1dcc2] bg-[#fffaf4] p-4 shadow-sm`}
               >
-                <div className="rounded-2xl border border-orange-200 bg-white p-5 text-center">
-                  <div className="text-4xl">{SPRITE_EMOJI[item.template.sprite_key] ?? "📦"}</div>
+                <div className={`${ui.cardInset} rounded-2xl p-5 text-center`}>
+                  <div className="text-4xl">
+                    {SPRITE_EMOJI[item.template.sprite_key] ?? "?"}
+                  </div>
                   <p className="mt-3 text-base font-semibold text-gray-900">
                     {item.template.name}
                   </p>
                   <p className="mt-1 text-xs text-gray-500">
-                    {CATEGORY_LABELS[item.template.category] ?? item.template.category} · {item.template.width}×{item.template.height}
+                    {CATEGORY_LABELS[item.template.category] ??
+                      item.template.category}{" "}
+                    · {item.template.width}x{item.template.height}
                   </p>
                 </div>
 
@@ -306,20 +306,24 @@ export default function ShopPage() {
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-gray-500">已拥有</p>
-                    <p className="text-lg font-semibold text-gray-900">{item.owned_quantity}</p>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {item.owned_quantity}
+                    </p>
                   </div>
                 </div>
 
                 <button
                   type="button"
-                  disabled={!item.can_purchase || buyingTemplateId === item.template.id}
+                  disabled={
+                    !item.can_purchase || buyingTemplateId === item.template.id
+                  }
                   onClick={() => {
                     void handlePurchase(item.template.id);
                   }}
-                  className="mt-4 inline-flex w-full justify-center rounded-xl bg-gray-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                  className={`mt-4 w-full ${ui.buttonPrimary} disabled:bg-gray-300`}
                 >
                   {!item.can_purchase
-                    ? "已默认赠送"
+                    ? "默认物品"
                     : buyingTemplateId === item.template.id
                       ? "购买中..."
                       : "购买"}
@@ -329,15 +333,14 @@ export default function ShopPage() {
           </div>
         </section>
 
-        <section className="mt-6 rounded-[28px] border border-orange-100 bg-white p-6 shadow-sm">
+        <section className={`mt-6 ${ui.card} p-6`}>
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="text-xl font-semibold text-gray-900">家具库</h2>
-            <p className="text-sm text-gray-500">购买成功后会出现在这里</p>
           </div>
 
           {inventory.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-orange-200 bg-orange-50/60 px-5 py-6 text-sm text-amber-700">
-              你的家具库还是空的，先挑一件喜欢的家具带回家。
+            <div className={`${ui.cardGhost} border-[#ecd6b7] bg-orange-50/60 px-5 py-6 text-sm text-amber-700`}>
+              还没有已拥有家具。
             </div>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
@@ -347,17 +350,24 @@ export default function ShopPage() {
                   className="flex items-center justify-between rounded-2xl border border-orange-100 bg-[#fffaf4] px-4 py-4"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="text-3xl">{SPRITE_EMOJI[item.template.sprite_key] ?? "📦"}</span>
+                    <span className="text-3xl">
+                      {SPRITE_EMOJI[item.template.sprite_key] ?? "?"}
+                    </span>
                     <div>
-                      <p className="font-medium text-gray-900">{item.template.name}</p>
+                      <p className="font-medium text-gray-900">
+                        {item.template.name}
+                      </p>
                       <p className="text-xs text-gray-500">
-                        {CATEGORY_LABELS[item.template.category] ?? item.template.category}
+                        {CATEGORY_LABELS[item.template.category] ??
+                          item.template.category}
                       </p>
                     </div>
                   </div>
                   <div className="text-right">
                     <p className="text-xs text-gray-500">数量</p>
-                    <p className="text-lg font-semibold text-amber-900">{item.quantity}</p>
+                    <p className="text-lg font-semibold text-amber-900">
+                      {item.quantity}
+                    </p>
                   </div>
                 </div>
               ))}

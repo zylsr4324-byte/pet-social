@@ -136,6 +136,21 @@ class PetChatServiceTests(unittest.TestCase):
     def setUp(self):
         self.pet_chat, self.http_exception = load_pet_chat_module()
 
+    def create_pet(self, **overrides):
+        defaults = {
+            "id": 7,
+            "pet_name": "Mochi",
+            "species": "猫",
+            "color": "白色",
+            "size": "小只",
+            "personality": "活泼",
+            "special_traits": "尾巴蓬松",
+            "last_interaction_at": None,
+            "last_fed_at": None,
+        }
+        defaults.update(overrides)
+        return self.pet_chat.Pet(**defaults)
+
     def test_create_pet_chat_turn_rejects_blank_message(self):
         db = MagicMock()
         pet = self.pet_chat.Pet(id=1)
@@ -148,7 +163,7 @@ class PetChatServiceTests(unittest.TestCase):
 
     def test_create_pet_chat_turn_builds_and_stages_user_and_pet_messages(self):
         db = MagicMock()
-        pet = self.pet_chat.Pet(id=7)
+        pet = self.create_pet()
 
         with patch.object(
             self.pet_chat,
@@ -169,6 +184,46 @@ class PetChatServiceTests(unittest.TestCase):
         self.assertEqual(pet_message.content, "hi back")
         self.assertEqual(db.add.call_count, 2)
         self.assertEqual(db.flush.call_count, 2)
+
+    def test_build_llm_input_includes_life_and_conversation_context(self):
+        recent_messages = [
+            self.pet_chat.Message(pet_id=7, role="user", content="你今天怎么这么安静"),
+            self.pet_chat.Message(pet_id=7, role="pet", content="我在发呆。"),
+            self.pet_chat.Message(pet_id=7, role="user", content="是不是没睡好"),
+            self.pet_chat.Message(pet_id=7, role="pet", content="有一点。"),
+            self.pet_chat.Message(pet_id=7, role="user", content="是不是饿了"),
+        ]
+        pet = self.create_pet(
+            last_interaction_at="invalid",
+            last_fed_at="invalid",
+        )
+
+        with patch.object(
+            self.pet_chat,
+            "project_current_stats",
+            return_value={
+                "fullness": 28,
+                "hydration": 72,
+                "energy": 82,
+                "cleanliness": 88,
+                "affection": 81,
+            },
+        ), patch.object(
+            self.pet_chat,
+            "calculate_mood",
+            return_value="happy",
+        ):
+            input_messages = self.pet_chat.build_llm_input(pet, recent_messages)
+
+        self.assertEqual(input_messages[0]["role"], "developer")
+        prompt = input_messages[0]["content"]
+        self.assertIn("生活语境", prompt)
+        self.assertIn("你有点饿，容易先惦记吃的", prompt)
+        self.assertIn("你现在精神不错", prompt)
+        self.assertIn("你已经很信任主人了", prompt)
+        self.assertIn("对话节奏", prompt)
+        self.assertIn("先回应主人刚刚这句话本身", prompt)
+        self.assertIn("你们已经来回聊了几轮", prompt)
 
 
 if __name__ == "__main__":

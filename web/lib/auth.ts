@@ -4,51 +4,16 @@ export const SECONDME_AUTH_RESULT_COOKIE_NAME =
 
 const AUTH_TOKEN_STORAGE_KEY = "pet-agent-social:auth-token";
 const AUTH_USER_EMAIL_STORAGE_KEY = "pet-agent-social:auth-user-email";
-
-export type TemporarySecondMeAuthResult = {
-  token: string;
-  email: string;
-};
-
-export const readStoredAuthToken = () => {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const storedToken = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
-
-  return storedToken?.trim() ? storedToken : null;
-};
-
-export const readStoredAuthUserEmail = () => {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const storedEmail = window.localStorage.getItem(AUTH_USER_EMAIL_STORAGE_KEY);
-
-  return storedEmail?.trim() ? storedEmail : null;
-};
-
-export const storeAuthToken = (token: string, email: string) => {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
-  window.localStorage.setItem(AUTH_USER_EMAIL_STORAGE_KEY, email);
-};
-
-export const hasStoredAuthToken = () => readStoredAuthToken() !== null;
-
-export const clearStoredAuth = () => {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-  window.localStorage.removeItem(AUTH_USER_EMAIL_STORAGE_KEY);
-};
+export const AUTH_COOKIE_NAME = "pet-agent-social-auth";
+export const PROTECTED_ROUTE_PREFIXES = [
+  "/chat",
+  "/community",
+  "/create-pet",
+  "/home",
+  "/my-pet",
+  "/shop",
+  "/social",
+] as const;
 
 const readCookieValue = (name: string) => {
   if (typeof document === "undefined") {
@@ -64,7 +29,83 @@ const readCookieValue = (name: string) => {
     return null;
   }
 
-  return cookie.slice(cookiePrefix.length);
+  return decodeURIComponent(cookie.slice(cookiePrefix.length));
+};
+
+const writeAuthCookie = (token: string) => {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  document.cookie = `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
+};
+
+const clearAuthCookie = () => {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  document.cookie = `${AUTH_COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=Lax`;
+};
+
+export type TemporarySecondMeAuthResult = {
+  token: string;
+  email: string;
+};
+
+export const readStoredAuthToken = () => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const storedToken = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+  const cookieToken = readCookieValue(AUTH_COOKIE_NAME);
+
+  if (storedToken?.trim()) {
+    if (cookieToken !== storedToken) {
+      writeAuthCookie(storedToken);
+    }
+    return storedToken;
+  }
+
+  if (cookieToken?.trim()) {
+    window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, cookieToken);
+    return cookieToken;
+  }
+
+  return null;
+};
+
+export const readStoredAuthUserEmail = () => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const storedEmail = window.localStorage.getItem(AUTH_USER_EMAIL_STORAGE_KEY);
+
+  return storedEmail?.trim() ? storedEmail : null;
+};
+
+export const hasStoredAuthToken = () => readStoredAuthToken() !== null;
+
+export const storeAuthToken = (token: string, email: string) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+  window.localStorage.setItem(AUTH_USER_EMAIL_STORAGE_KEY, email);
+  writeAuthCookie(token);
+};
+
+export const clearStoredAuth = () => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  window.localStorage.removeItem(AUTH_USER_EMAIL_STORAGE_KEY);
+  clearAuthCookie();
 };
 
 const decodeBase64Url = (value: string) => {
@@ -91,7 +132,7 @@ export const readTemporarySecondMeAuthResult =
 
     try {
       const parsedValue = JSON.parse(
-        decodeBase64Url(decodeURIComponent(rawValue))
+        decodeBase64Url(rawValue)
       ) as Record<string, unknown>;
 
       if (

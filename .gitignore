@@ -1,11 +1,17 @@
 __pycache__/
 *.py[cod]
+
+# Local environment files can contain secrets and should not be committed.
 .env
 .env.*
+*.env
+*.env.local
 !.env.example
-.secondme/
-.venv-backend-test/
 api/.env
 web/.env.local
+
+# Local runtime and test artifacts.
+.secondme/
+.venv-backend-test/
 web/next-dev.log
 web/next-dev-webpack.log

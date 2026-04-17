@@ -218,6 +218,9 @@ def _build_status_response(pet: Pet, projected: dict) -> PetStatusResponse:
         energy=projected["energy"],
         cleanliness=projected["cleanliness"],
         mood=mood,
+        socialEmotion=pet.social_emotion,
+        socialAction=pet.social_action,
+        socialUpdatedAt=pet.social_updated_at,
     )
 
 

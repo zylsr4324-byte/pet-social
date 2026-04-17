@@ -27,6 +27,8 @@ import {
   type SocialCandidate,
   type SocialTaskHistoryItem,
 } from "../../lib/social";
+import { AppHeaderNav } from "../../lib/AppHeaderNav";
+import { ui } from "../../lib/ui";
 
 const LOAD_FAILURE_MESSAGE = "加载社区广场失败了，请稍后再试。";
 const ACTION_FAILURE_MESSAGE = "执行社交回合失败了，请稍后再试。";
@@ -350,12 +352,7 @@ export default function CommunityPage() {
   return (
     <main className="min-h-screen bg-[#fffaf4] px-6 py-12 text-gray-900">
       <div className="mx-auto max-w-6xl">
-        <div className="mb-8 flex flex-wrap items-center gap-4 text-sm text-gray-500">
-          <Link href="/">首页</Link>
-          <Link href="/my-pet">我的宠物</Link>
-          <Link href="/social">站内社交</Link>
-          <Link href="/chat">聊天</Link>
-        </div>
+        <AppHeaderNav />
 
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
@@ -364,8 +361,7 @@ export default function CommunityPage() {
             </div>
             <h1 className="mt-4 text-3xl font-bold sm:text-4xl">社区广场</h1>
             <p className="mt-3 text-base leading-7 text-gray-600">
-              这里展示 {petName || "当前宠物"} 能发现的宠物卡片，当前版本会同时补充
-              A2A Agent Card 概览，方便后续继续走向更完整的社区交互。
+              这里展示 {petName || "当前宠物"} 当前能发现的宠物卡片和 Agent Card 信息。
             </p>
           </div>
 
@@ -381,7 +377,7 @@ export default function CommunityPage() {
         </div>
 
         {!isLoading && authToken && petId && communityCandidates.length > 0 ? (
-          <section className="mb-6 rounded-[28px] border border-orange-100 bg-white p-5 shadow-sm">
+          <section className={`mb-6 ${ui.card} p-5`}>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="max-w-2xl">
                 <h2 className="text-lg font-semibold text-gray-900">
@@ -407,7 +403,7 @@ export default function CommunityPage() {
                   value={searchKeyword}
                   onChange={(event) => setSearchKeyword(event.target.value)}
                   placeholder="例如：猫、活泼、聊天、好奇"
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-gray-500"
+                  className={`${ui.input} text-sm`}
                 />
               </label>
 
@@ -422,7 +418,7 @@ export default function CommunityPage() {
                       event.target.value as "all" | CommunityState
                     )
                   }
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-gray-500"
+                  className={`${ui.input} text-sm`}
                 >
                   {filterOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -436,7 +432,7 @@ export default function CommunityPage() {
         ) : null}
 
         {!isLoading && authToken && petId ? (
-          <section className="mb-6 rounded-[28px] border border-orange-100 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 shadow-sm">
+          <section className={`mb-6 ${ui.cardWarm} p-6`}>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="max-w-3xl">
                 <h2 className="text-xl font-semibold text-gray-900">
@@ -456,7 +452,7 @@ export default function CommunityPage() {
                   void handleRunSocialRound();
                 }}
                 disabled={isRunningSocialRound}
-                className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className={ui.buttonPrimary}
               >
                 {isRunningSocialRound ? "执行中..." : "让宠物去打招呼"}
               </button>
@@ -465,19 +461,19 @@ export default function CommunityPage() {
         ) : null}
 
         {isLoading ? (
-          <div className="rounded-3xl border border-gray-200 bg-white p-6 text-sm text-gray-600 shadow-sm">
+          <div className={`${ui.cardSoft} p-6 text-sm text-gray-600 shadow-sm`}>
             正在加载社区宠物列表...
           </div>
         ) : null}
 
         {!isLoading && !authToken ? (
-          <div className="rounded-3xl border border-dashed border-gray-200 bg-white p-8 text-sm text-gray-600 shadow-sm">
+          <div className={`${ui.cardGhost} bg-white p-8 text-sm text-gray-600 shadow-sm`}>
             {statusMessage || LOGIN_REQUIRED_MESSAGE}
           </div>
         ) : null}
 
         {!isLoading && authToken && !petId ? (
-          <div className="rounded-3xl border border-dashed border-gray-200 bg-white p-8 text-sm text-gray-600 shadow-sm">
+          <div className={`${ui.cardGhost} bg-white p-8 text-sm text-gray-600 shadow-sm`}>
             {statusMessage || MISSING_ACTIVE_PET_MESSAGE}
           </div>
         ) : null}
@@ -485,7 +481,7 @@ export default function CommunityPage() {
         {!isLoading && authToken && petId ? (
           <>
             {statusMessage ? (
-              <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-6 text-amber-800">
+              <div className={`mb-6 ${ui.noticeInfo}`}>
                 {statusMessage}
               </div>
             ) : null}
@@ -495,11 +491,11 @@ export default function CommunityPage() {
             </div>
 
             {communityCandidates.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-gray-200 bg-white p-8 text-sm leading-7 text-gray-600 shadow-sm">
+              <div className={`${ui.cardGhost} bg-white p-8 text-sm leading-7 text-gray-600 shadow-sm`}>
                 暂时还没有可展示的社区宠物。等有更多宠物加入后，这里会先显示基础卡片列表。
               </div>
             ) : filteredCandidates.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-gray-200 bg-white p-8 text-sm leading-7 text-gray-600 shadow-sm">
+              <div className={`${ui.cardGhost} bg-white p-8 text-sm leading-7 text-gray-600 shadow-sm`}>
                 没有匹配当前搜索或筛选条件的宠物，调整关键词或切回“全部”即可查看完整列表。
               </div>
             ) : (
@@ -511,7 +507,7 @@ export default function CommunityPage() {
                   return (
                     <article
                       key={candidate.pet.id}
-                      className="rounded-[28px] border border-orange-100 bg-white p-6 shadow-sm"
+                      className={`${ui.card} p-6`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -546,7 +542,7 @@ export default function CommunityPage() {
                         ) : null}
                       </dl>
 
-                      <section className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                      <section className={`mt-5 ${ui.cardSoft} p-4`}>
                         <div className="flex items-center justify-between gap-3">
                           <h3 className="text-sm font-semibold text-gray-900">
                             A2A Agent Card
@@ -587,7 +583,7 @@ export default function CommunityPage() {
                         </p>
                         <Link
                           href="/social"
-                          className="inline-flex rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-700"
+                          className={`${ui.buttonPrimary} px-4 py-2`}
                         >
                           去社交页
                         </Link>

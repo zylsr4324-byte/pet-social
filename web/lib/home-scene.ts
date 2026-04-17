@@ -2,6 +2,12 @@ import type { PetStatus } from "./PetStatusPanel";
 
 export type HomeSceneObjectAction = "feed" | "drink" | "play" | "bed";
 export type HomeRoomId = "living" | "bedroom" | "kitchen";
+export type HomeSocialEmotion =
+  | "calm"
+  | "curious"
+  | "guarded"
+  | "excited"
+  | "warm";
 
 export type TilePoint = {
   tileX: number;
@@ -58,6 +64,7 @@ export type HomeSceneBehavior = {
 export type HomeSceneBehaviorContext = {
   hasToy?: boolean;
   hasOtherPets?: boolean;
+  socialEmotion?: HomeSocialEmotion | null;
 };
 
 export type HomePetSpriteSpec = {
@@ -377,6 +384,51 @@ export function getHomeSceneBehavior(
       target: "play",
       label: "有点寂寞，想去玩玩具",
       summary: "Playing：宠物会主动去玩具旁边蹦跳",
+    };
+  }
+
+  if (context.hasOtherPets && context.socialEmotion === "guarded") {
+    return {
+      state: "wandering",
+      target: null,
+      label: "发现同伴了，但还想先保持一点距离",
+      summary: "Guarded social：宠物会先在附近观察，不会立刻贴近同伴",
+    };
+  }
+
+  if (context.hasOtherPets && context.socialEmotion === "excited") {
+    return {
+      state: "social",
+      target: null,
+      label: "刚社交上头，想立刻冲过去打招呼",
+      summary: "Excited social：宠物会主动靠近同伴，并触发更外放的问候动作",
+    };
+  }
+
+  if (context.hasOtherPets && context.socialEmotion === "warm") {
+    return {
+      state: "social",
+      target: null,
+      label: "刚建立亲近感，愿意慢慢靠过去",
+      summary: "Warm social：宠物会靠近同伴，并触发更柔和的互动动作",
+    };
+  }
+
+  if (context.hasOtherPets && context.socialEmotion === "curious") {
+    return {
+      state: "social",
+      target: null,
+      label: "注意到同伴了，想先凑近观察一下",
+      summary: "Curious social：宠物会试探着靠近同伴，像在闻闻看",
+    };
+  }
+
+  if (context.hasOtherPets && context.socialEmotion === "calm") {
+    return {
+      state: "social",
+      target: null,
+      label: "同伴就在附近，准备平稳地打个招呼",
+      summary: "Calm social：宠物会保持平稳节奏靠近同伴并轻轻互动",
     };
   }
 

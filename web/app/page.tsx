@@ -1,224 +1,598 @@
-import type { Metadata } from "next";
-import Link from "next/link";
+"use client";
 
-import { PublicSiteShell } from "../lib/public-site";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 
-export const metadata: Metadata = {
-  title: "Overview",
-  description:
-    "Pet Agent Social is an AI pet experience with SecondMe sign-in, pet chat, live pet status, and pet-to-pet social interactions.",
+import {
+  clearStoredAuth,
+  clearTemporarySecondMeAuthResult,
+  readStoredAuthToken,
+  readTemporarySecondMeAuthResult,
+  storeAuthToken,
+} from "../lib/auth";
+import { API_BASE_URL } from "../lib/constants";
+import { clearStoredPetId } from "../lib/pet";
+import { ui } from "../lib/ui";
+
+type AuthMode = "login" | "register";
+
+type AuthUser = {
+  id: number;
+  email: string;
+  authProvider: string;
+  coins: number;
+  created_at: string;
 };
 
-const FEATURE_CARDS = [
-  {
-    title: "Create more than one pet",
-    body: "Users can keep multiple AI pets, switch between them, and maintain separate personalities, traits, and histories.",
-  },
-  {
-    title: "Track living status",
-    body: "Each pet exposes mood, energy, fullness, hydration, cleanliness, and affection so the app feels alive instead of static.",
-  },
-  {
-    title: "Chat in real time",
-    body: "Pets can reply in one-to-one chat and continue building a persistent message history for the current account.",
-  },
-  {
-    title: "Let pets socialize",
-    body: "Pets can greet, befriend, and run social rounds with other pets in the app through shared social records.",
-  },
-];
+type AuthLoginResponse = {
+  message: string;
+  token: string;
+  user: AuthUser;
+};
 
-const REVIEW_FACTS = [
-  "SecondMe is the only sign-in method in the current build.",
-  "Pet profile data and chat history are stored per user account.",
-  "The web app now includes public support and privacy pages.",
-  "Integration review still waits for a public MCP endpoint, so App listing readiness comes first.",
-];
+type AuthRegisterResponse = {
+  message: string;
+  user: AuthUser;
+};
 
-const FLOW_STEPS = [
-  {
-    step: "1",
-    title: "Sign in with SecondMe",
-    body: "The current preview no longer offers local email registration or password login. Users enter through the configured SecondMe External App.",
-  },
-  {
-    step: "2",
-    title: "Create or select a pet",
-    body: "After sign-in, users can create a pet, edit an existing pet, or switch between pets tied to the same account.",
-  },
-  {
-    step: "3",
-    title: "Chat, care, and socialize",
-    body: "Users can keep pets active through chat, home scene interactions, survival status updates, and pet-to-pet social features.",
-  },
-];
+type AuthMeResponse = {
+  message: string;
+  user: AuthUser;
+};
+
+const AUTH_CHECK_TIMEOUT_MS = 5000;
+
+const isAuthUser = (value: unknown): value is AuthUser => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const user = value as Record<string, unknown>;
+
+  return (
+    typeof user.id === "number" &&
+    typeof user.email === "string" &&
+    typeof user.authProvider === "string" &&
+    typeof user.coins === "number" &&
+    typeof user.created_at === "string"
+  );
+};
+
+const isAuthLoginResponse = (value: unknown): value is AuthLoginResponse => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const response = value as Record<string, unknown>;
+
+  return (
+    typeof response.message === "string" &&
+    typeof response.token === "string" &&
+    isAuthUser(response.user)
+  );
+};
+
+const isAuthRegisterResponse = (
+  value: unknown
+): value is AuthRegisterResponse => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const response = value as Record<string, unknown>;
+
+  return typeof response.message === "string" && isAuthUser(response.user);
+};
+
+const isAuthMeResponse = (value: unknown): value is AuthMeResponse => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const response = value as Record<string, unknown>;
+
+  return typeof response.message === "string" && isAuthUser(response.user);
+};
+
+const getResponseErrorMessage = async (
+  response: Response,
+  fallbackMessage: string
+) => {
+  try {
+    const data = await response.json();
+
+    if (
+      data &&
+      typeof data === "object" &&
+      "detail" in data &&
+      typeof data.detail === "string"
+    ) {
+      return data.detail;
+    }
+
+    if (
+      data &&
+      typeof data === "object" &&
+      "message" in data &&
+      typeof data.message === "string"
+    ) {
+      return data.message;
+    }
+  } catch {
+    return fallbackMessage;
+  }
+
+  return fallbackMessage;
+};
+
+const requestCurrentUser = async (
+  token: string,
+  timeoutMs = AUTH_CHECK_TIMEOUT_MS
+) => {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        await getResponseErrorMessage(response, "无法验证当前登录状态，请重新登录。")
+      );
+    }
+
+    const data: unknown = await response.json();
+
+    if (!isAuthMeResponse(data)) {
+      throw new Error("登录状态校验失败，请重新登录。");
+    }
+
+    return data.user;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("登录状态检查超时，请重新登录。");
+    }
+
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+};
+
+const resolvePostAuthPath = (nextPath: string | null) =>
+  nextPath?.startsWith("/") ? nextPath : "/home";
+
+const buildAuthEntryUrl = (mode: AuthMode, nextPath: string | null) => {
+  const params = new URLSearchParams();
+
+  if (mode === "register") {
+    params.set("mode", "register");
+  }
+
+  if (nextPath?.startsWith("/")) {
+    params.set("next", nextPath);
+  }
+
+  const query = params.toString();
+
+  return query ? `/?${query}` : "/";
+};
+
+function AuthLandingContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [mode, setMode] = useState<AuthMode>("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{
+    type: "error" | "info";
+    message: string;
+  } | null>(null);
+
+  const modeFromQuery = searchParams.get("mode");
+  const nextPath = searchParams.get("next");
+
+  useEffect(() => {
+    if (modeFromQuery === "register") {
+      setMode("register");
+      return;
+    }
+
+    setMode("login");
+  }, [modeFromQuery]);
+
+  useEffect(() => {
+    let isMounted = true;
+    let didRedirect = false;
+
+    const stripSecondMeQuery = () => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("secondme");
+      url.searchParams.delete("secondme_error");
+      window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+    };
+
+    const checkAuth = async () => {
+      const temporarySecondMeResult = readTemporarySecondMeAuthResult();
+      const secondMeError = searchParams.get("secondme_error");
+
+      if (temporarySecondMeResult) {
+        clearTemporarySecondMeAuthResult();
+        storeAuthToken(
+          temporarySecondMeResult.token,
+          temporarySecondMeResult.email
+        );
+        stripSecondMeQuery();
+      } else if (secondMeError) {
+        stripSecondMeQuery();
+      }
+
+      const token = readStoredAuthToken();
+
+      if (!token) {
+        if (isMounted) {
+          setStatusMessage(
+            secondMeError ? { type: "error", message: secondMeError } : null
+          );
+          setIsCheckingAuth(false);
+        }
+        return;
+      }
+
+      try {
+        await requestCurrentUser(token);
+
+        if (!isMounted) {
+          return;
+        }
+
+        didRedirect = true;
+        router.replace(resolvePostAuthPath(nextPath));
+      } catch (error) {
+        clearStoredAuth();
+        clearStoredPetId();
+
+        if (isMounted) {
+          setStatusMessage({
+            type: "info",
+            message:
+              error instanceof Error
+                ? error.message
+                : "登录状态校验失败，请重新登录。",
+          });
+          setIsCheckingAuth(false);
+        }
+      } finally {
+        if (isMounted && !didRedirect) {
+          setIsCheckingAuth(false);
+        }
+      }
+    };
+
+    void checkAuth();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [nextPath, router, searchParams]);
+
+  const title = useMemo(() => (mode === "login" ? "登录" : "注册"), [mode]);
+
+  const switchMode = (nextMode: AuthMode) => {
+    setStatusMessage(null);
+    setPassword("");
+    setConfirmPassword("");
+    router.replace(buildAuthEntryUrl(nextMode, nextPath));
+  };
+
+  const loginWithCredentials = async (
+    loginEmail: string,
+    loginPassword: string
+  ) => {
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email: loginEmail,
+        password: loginPassword,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        await getResponseErrorMessage(response, "登录失败，请检查邮箱和密码。")
+      );
+    }
+
+    const data: unknown = await response.json();
+
+    if (!isAuthLoginResponse(data)) {
+      throw new Error("登录响应格式不正确，请稍后重试。");
+    }
+
+    storeAuthToken(data.token, data.user.email);
+    clearStoredPetId();
+
+    try {
+      await requestCurrentUser(data.token);
+    } catch (error) {
+      clearStoredAuth();
+      clearStoredPetId();
+      throw error;
+    }
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const normalizedEmail = email.trim();
+
+    if (!normalizedEmail || !password.trim()) {
+      setStatusMessage({
+        type: "error",
+        message: "请先填写邮箱和密码。",
+      });
+      return;
+    }
+
+    if (mode === "register") {
+      if (!confirmPassword.trim()) {
+        setStatusMessage({
+          type: "error",
+          message: "请再输入一次确认密码。",
+        });
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        setStatusMessage({
+          type: "error",
+          message: "两次输入的密码不一致。",
+        });
+        return;
+      }
+    }
+
+    setIsSubmitting(true);
+    setStatusMessage(null);
+
+    try {
+      if (mode === "register") {
+        const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: normalizedEmail,
+            password,
+          }),
+        });
+
+        if (!registerResponse.ok) {
+          setStatusMessage({
+            type: "error",
+            message: await getResponseErrorMessage(
+              registerResponse,
+              "注册失败，请稍后重试。"
+            ),
+          });
+          return;
+        }
+
+        const registerData: unknown = await registerResponse.json();
+
+        if (!isAuthRegisterResponse(registerData)) {
+          setStatusMessage({
+            type: "error",
+            message: "注册响应格式不正确，请稍后重试。",
+          });
+          return;
+        }
+      }
+
+      await loginWithCredentials(normalizedEmail, password);
+      router.replace(resolvePostAuthPath(nextPath));
+    } catch (error) {
+      setStatusMessage({
+        type: "error",
+        message:
+          error instanceof Error ? error.message : "认证失败，请稍后重试。",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (isCheckingAuth) {
+    return (
+      <main className="min-h-screen bg-[#f7f1e8] px-6 py-12 text-stone-900">
+        <div
+          className={`mx-auto flex min-h-[80vh] max-w-6xl items-center justify-center px-8 py-20 ${ui.card}`}
+        >
+          <p className="text-sm tracking-[0.2em] text-stone-500 uppercase">
+            正在检查登录状态
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#fff7ed,_#f7f1e8_52%,_#efe4d2)] px-6 py-8 text-stone-900 sm:px-8 sm:py-10">
+      <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-6xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+        <section className="relative overflow-hidden rounded-[36px] border border-stone-200 bg-[#201611] px-8 py-10 text-[#f7f1e8] shadow-[0_40px_100px_rgba(32,22,17,0.24)] sm:px-10 sm:py-12">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(245,158,11,0.32),_transparent_38%),linear-gradient(140deg,_rgba(255,255,255,0.05),_transparent_55%)]" />
+          <div className="relative">
+            <div className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs tracking-[0.24em] text-amber-100 uppercase">
+              Pet Agent Social
+            </div>
+
+            <h1 className="mt-8 max-w-xl text-4xl font-semibold leading-tight sm:text-5xl">
+              进入你的宠物主页
+            </h1>
+          </div>
+        </section>
+
+        <section className="rounded-[36px] border border-stone-200 bg-white/90 p-6 shadow-[0_30px_80px_rgba(92,69,38,0.08)] backdrop-blur sm:p-8">
+          <div className="flex rounded-full bg-stone-100 p-1">
+            <button
+              type="button"
+              onClick={() => switchMode("login")}
+              className={`flex-1 rounded-full px-4 py-3 text-sm font-medium transition ${
+                mode === "login"
+                  ? "bg-stone-900 text-white shadow-sm"
+                  : "text-stone-600 hover:text-stone-900"
+              }`}
+            >
+              登录
+            </button>
+            <button
+              type="button"
+              onClick={() => switchMode("register")}
+              className={`flex-1 rounded-full px-4 py-3 text-sm font-medium transition ${
+                mode === "register"
+                  ? "bg-stone-900 text-white shadow-sm"
+                  : "text-stone-600 hover:text-stone-900"
+              }`}
+            >
+              注册
+            </button>
+          </div>
+
+          <div className="mt-8">
+            <p className="text-sm tracking-[0.18em] text-stone-500 uppercase">
+              {mode === "login" ? "Sign In" : "Create Account"}
+            </p>
+            <h2 className="mt-3 text-3xl font-semibold text-stone-900">
+              {title}
+            </h2>
+          </div>
+
+          {statusMessage ? (
+            <div
+              className={`mt-6 ${
+                statusMessage.type === "error" ? ui.noticeError : ui.noticeInfo
+              }`}
+            >
+              {statusMessage.message}
+            </div>
+          ) : null}
+
+          <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+            <div>
+              <label
+                htmlFor="auth-email"
+                className="mb-2 block text-sm font-medium text-stone-800"
+              >
+                邮箱
+              </label>
+              <input
+                id="auth-email"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="name@example.com"
+                disabled={isSubmitting}
+                className={ui.input}
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="auth-password"
+                className="mb-2 block text-sm font-medium text-stone-800"
+              >
+                密码
+              </label>
+              <input
+                id="auth-password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="至少 6 位"
+                disabled={isSubmitting}
+                className={ui.input}
+              />
+            </div>
+
+            {mode === "register" ? (
+              <div>
+                <label
+                  htmlFor="auth-confirm-password"
+                  className="mb-2 block text-sm font-medium text-stone-800"
+                >
+                  确认密码
+                </label>
+                <input
+                  id="auth-confirm-password"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="再输入一次密码"
+                  disabled={isSubmitting}
+                  className={ui.input}
+                />
+              </div>
+            ) : null}
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className={`w-full ${ui.buttonPrimary}`}
+            >
+              {isSubmitting
+                ? mode === "login"
+                  ? "登录中..."
+                  : "注册并登录中..."
+                : mode === "login"
+                  ? "登录并进入主页"
+                  : "注册并进入主页"}
+            </button>
+          </form>
+
+          <div className="mt-5">
+            <a
+              href="/api/auth/secondme/start"
+              className={`w-full ${ui.buttonSecondary}`}
+            >
+              使用 SecondMe 登录
+            </a>
+          </div>
+
+          <div className="mt-6 text-sm leading-7 text-stone-500">
+            {mode === "login" ? "没有账号？" : "已有账号？"}
+            <button
+              type="button"
+              onClick={() => switchMode(mode === "login" ? "register" : "login")}
+              className="ml-1 font-medium text-stone-900 underline underline-offset-4"
+            >
+              {mode === "login" ? "去注册" : "去登录"}
+            </button>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
 
 export default function Home() {
   return (
-    <PublicSiteShell currentPage="home">
-      <section className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr] lg:items-start">
-        <div className="rounded-[36px] border border-white/80 bg-white/88 p-8 shadow-[0_28px_90px_-46px_rgba(15,23,42,0.45)] sm:p-10">
-          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-amber-700">
-            Public App Overview
-          </p>
-          <h1 className="mt-5 max-w-3xl font-[family-name:'Avenir_Next','Trebuchet_MS','Segoe_UI',sans-serif] text-4xl font-semibold leading-tight text-slate-950 sm:text-5xl">
-            AI pets that can chat back, stay alive, and build relationships.
-          </h1>
-          <p className="mt-6 max-w-2xl text-base leading-8 text-slate-600 sm:text-lg">
-            Pet Agent Social is a web app for creating AI pets, checking their
-            status, talking with them, and triggering pet-to-pet interactions.
-            The current preview is connected to SecondMe sign-in and is being
-            prepared for App listing submission.
-          </p>
-
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link
-              href="/login"
-              className="inline-flex rounded-full bg-slate-900 px-6 py-3 text-sm font-medium text-white transition hover:bg-slate-700"
-            >
-              Continue With SecondMe
-            </Link>
-            <Link
-              href="/support"
-              className="inline-flex rounded-full border border-slate-300 bg-white px-6 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:text-slate-950"
-            >
-              Support
-            </Link>
-            <Link
-              href="/privacy"
-              className="inline-flex rounded-full border border-emerald-300 bg-emerald-50 px-6 py-3 text-sm font-medium text-emerald-900 transition hover:bg-emerald-100"
-            >
-              Privacy Policy
-            </Link>
-          </div>
-
-          <div className="mt-8 flex flex-wrap gap-2">
-            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
-              SecondMe-only sign-in
-            </span>
-            <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-900">
-              Multi-pet account support
-            </span>
-            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-900">
-              Persistent chat history
-            </span>
-            <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-900">
-              Pet social rounds
-            </span>
-          </div>
-        </div>
-
-        <aside className="rounded-[36px] border border-slate-200 bg-slate-950 p-8 text-white shadow-[0_28px_90px_-46px_rgba(15,23,42,0.7)]">
-          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-amber-300">
-            Review Snapshot
-          </p>
-          <h2 className="mt-4 font-[family-name:'Avenir_Next','Trebuchet_MS','Segoe_UI',sans-serif] text-2xl font-semibold leading-tight">
-            What this public site covers today
-          </h2>
-          <div className="mt-6 space-y-4">
-            {REVIEW_FACTS.map((fact) => (
-              <div
-                key={fact}
-                className="rounded-3xl border border-white/10 bg-white/6 px-4 py-4 text-sm leading-7 text-slate-200"
-              >
-                {fact}
-              </div>
-            ))}
-          </div>
-        </aside>
-      </section>
-
-      <section className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {FEATURE_CARDS.map((card) => (
-          <article
-            key={card.title}
-            className="rounded-[28px] border border-slate-200 bg-white/90 p-6 shadow-[0_24px_80px_-52px_rgba(15,23,42,0.45)]"
-          >
-            <h2 className="font-[family-name:'Avenir_Next','Trebuchet_MS','Segoe_UI',sans-serif] text-xl font-semibold text-slate-950">
-              {card.title}
-            </h2>
-            <p className="mt-3 text-sm leading-7 text-slate-600">
-              {card.body}
-            </p>
-          </article>
-        ))}
-      </section>
-
-      <section className="mt-10 rounded-[36px] border border-slate-200 bg-white/92 p-8 shadow-[0_24px_80px_-52px_rgba(15,23,42,0.42)] sm:p-10">
-        <div className="max-w-3xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-sky-700">
-            User Flow
-          </p>
-          <h2 className="mt-4 font-[family-name:'Avenir_Next','Trebuchet_MS','Segoe_UI',sans-serif] text-3xl font-semibold text-slate-950">
-            The current product path is already clear enough for a public App
-            website.
-          </h2>
-          <p className="mt-4 text-base leading-8 text-slate-600">
-            The missing items for submission are not local product pages anymore.
-            They are the public deployment URL, final review assets, and
-            platform-side listing data.
-          </p>
-        </div>
-
-        <div className="mt-8 grid gap-4 lg:grid-cols-3">
-          {FLOW_STEPS.map((item) => (
-            <article
-              key={item.step}
-              className="rounded-[28px] border border-slate-200 bg-slate-50 p-6"
-            >
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
-                {item.step}
-              </div>
-              <h3 className="mt-4 text-xl font-semibold text-slate-950">
-                {item.title}
-              </h3>
-              <p className="mt-3 text-sm leading-7 text-slate-600">
-                {item.body}
-              </p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="mt-10 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-        <article className="rounded-[32px] border border-emerald-200 bg-emerald-50/90 p-8 shadow-[0_24px_80px_-52px_rgba(16,185,129,0.35)]">
-          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-700">
-            Public Links
-          </p>
-          <h2 className="mt-4 text-2xl font-semibold text-slate-950">
-            Listing-ready support pages now exist in the web app.
-          </h2>
-          <p className="mt-4 text-sm leading-7 text-slate-700">
-            Once the app is deployed to a stable HTTPS domain, the following
-            routes can be used directly for the App listing:
-          </p>
-          <div className="mt-6 space-y-3 text-sm text-slate-800">
-            <div className="rounded-2xl bg-white px-4 py-3 shadow-sm">
-              <strong className="font-semibold">Website:</strong> `/`
-            </div>
-            <div className="rounded-2xl bg-white px-4 py-3 shadow-sm">
-              <strong className="font-semibold">Support:</strong> `/support`
-            </div>
-            <div className="rounded-2xl bg-white px-4 py-3 shadow-sm">
-              <strong className="font-semibold">Privacy:</strong> `/privacy`
-            </div>
-          </div>
-        </article>
-
-        <article className="rounded-[32px] border border-amber-200 bg-amber-50/90 p-8 shadow-[0_24px_80px_-52px_rgba(245,158,11,0.35)]">
-          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-amber-700">
-            Next Platform Step
-          </p>
-          <h2 className="mt-4 text-2xl font-semibold text-slate-950">
-            Deploy first, then backfill the listing URLs.
-          </h2>
-          <p className="mt-4 text-sm leading-7 text-slate-700">
-            The App submission path is now mainly blocked on production hosting
-            and review assets, not on missing public copy. Integration review is
-            still separate and should wait for a real public MCP endpoint.
-          </p>
-        </article>
-      </section>
-    </PublicSiteShell>
+    <Suspense fallback={null}>
+      <AuthLandingContent />
+    </Suspense>
   );
 }

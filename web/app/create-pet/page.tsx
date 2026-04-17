@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AuthSessionNotice } from "../../lib/AuthSessionNotice";
@@ -11,7 +12,6 @@ import {
 } from "../../lib/auth";
 import {
   API_BASE_URL,
-  LOGIN_REQUIRED_MESSAGE,
 } from "../../lib/constants";
 import {
   EMPTY_PET,
@@ -32,8 +32,11 @@ import {
   getSpeciesVisual,
   getTemperamentTag,
 } from "../../lib/pet-display";
+import { AppHeaderNav } from "../../lib/AppHeaderNav";
+import { ui } from "../../lib/ui";
 
 function CreatePetPageContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const forceNew = searchParams.get("mode") === "new";
   const editId = searchParams.get("id") ? Number(searchParams.get("id")) : null;
@@ -55,10 +58,7 @@ function CreatePetPageContent() {
         const storedAuthToken = readStoredAuthToken();
 
         if (!storedAuthToken) {
-          if (isMounted) {
-            setAuthToken(null);
-            setFeedback({ type: "info", message: LOGIN_REQUIRED_MESSAGE });
-          }
+          router.replace("/?next=/create-pet");
           return;
         }
 
@@ -81,7 +81,7 @@ function CreatePetPageContent() {
 
           if (response.status === 401) {
             clearStoredAuth();
-            if (isMounted) { setAuthToken(null); setFeedback({ type: "info", message: LOGIN_REQUIRED_MESSAGE }); }
+            router.replace("/?next=/create-pet");
             return;
           }
 
@@ -121,7 +121,7 @@ function CreatePetPageContent() {
     void loadPet();
 
     return () => { isMounted = false; };
-  }, [editId, forceNew]);
+  }, [editId, forceNew, router]);
 
   const handlePetChange = (field: keyof PetProfile, value: string) => {
     setPet((currentPet) => ({
@@ -133,10 +133,7 @@ function CreatePetPageContent() {
 
   const handleSavePet = async () => {
     if (!authToken) {
-      setFeedback({
-        type: "info",
-        message: LOGIN_REQUIRED_MESSAGE,
-      });
+      router.replace("/?next=/create-pet");
       return;
     }
 
@@ -157,10 +154,7 @@ function CreatePetPageContent() {
         if (response.status === 401) {
           clearStoredAuth();
           setAuthToken(null);
-          setFeedback({
-            type: "info",
-            message: LOGIN_REQUIRED_MESSAGE,
-          });
+          router.replace("/?next=/create-pet");
           return;
         }
 
@@ -222,12 +216,8 @@ function CreatePetPageContent() {
   const petCardSpecies = pet.species || "待选择品种";
   const petCardColor = pet.color || "待补充颜色";
   const petCardSize = pet.size || "待选择体型";
-  const petCardPersonality =
-    pet.personality ||
-    "这里会显示宠物的性格摘要，比如温柔、活泼、黏人，或者有一点自己的小脾气。";
-  const petCardSpecialTraits =
-    pet.specialTraits ||
-    "这里会显示宠物的特殊特征，比如毛色细节、耳朵形状、尾巴特点，或者很容易被记住的小标记。";
+  const petCardPersonality = pet.personality || "待填写";
+  const petCardSpecialTraits = pet.specialTraits || "待填写";
   const petSpeciesVisual = getSpeciesVisual(pet.species);
   const petColorDisplay = getColorDisplay(pet.color);
   const petSizeDisplay = getSizeDisplay(pet.size);
@@ -235,85 +225,25 @@ function CreatePetPageContent() {
   const petTemperamentTag = getTemperamentTag(pet.personality);
   const petSocialStatus = getSocialStatus(pet);
 
-  if (!isLoadingPet && !authToken) {
-    return (
-      <main className="min-h-screen bg-white px-6 py-12 text-gray-900">
-        <div className="mx-auto max-w-5xl">
-          <div className="mb-8">
-            <Link
-              href="/"
-              className="text-sm text-gray-500 transition hover:text-gray-800"
-            >
-              返回首页
-            </Link>
-
-            <h1 className="mt-4 text-3xl font-bold sm:text-4xl">创建宠物</h1>
-            <p className="mt-3 text-base leading-7 text-gray-600">
-              先登录后，就能创建、保存并继续编辑只属于你的宠物资料。
-            </p>
-          </div>
-
-          <section className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 shadow-sm">
-            <h2 className="text-2xl font-semibold text-gray-900">
-              请先登录后再创建宠物
-            </h2>
-            <p className="mt-3 text-sm leading-7 text-gray-600">
-              {feedback?.message || LOGIN_REQUIRED_MESSAGE}
-            </p>
-
-            <div className="mt-6 flex flex-wrap items-center gap-3">
-              <Link
-                href="/login"
-                className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700"
-              >
-                去登录
-              </Link>
-              <Link
-                href="/register"
-                className="text-sm text-gray-500 transition hover:text-gray-800"
-              >
-                还没有账号？去注册
-              </Link>
-            </div>
-          </section>
-        </div>
-      </main>
-    );
-  }
-
   return (
     <main className="min-h-screen bg-white px-6 py-12 text-gray-900">
       <div className="mx-auto max-w-5xl">
+        <AppHeaderNav />
         <div className="mb-8">
-          <Link
-            href="/"
-            className="text-sm text-gray-500 transition hover:text-gray-800"
-          >
-            ← 返回首页
-          </Link>
-
-          <h1 className="mt-4 text-3xl font-bold sm:text-4xl">
+          <h1 className="text-3xl font-bold sm:text-4xl">
             {petId !== null ? "编辑宠物" : "创建宠物"}
           </h1>
           <p className="mt-3 text-base leading-7 text-gray-600">
             {petId !== null
-              ? "修改你的宠物资料，保存后立即生效。需要新建第二只宠物？"
-              : "先为你的第一只宠物填写基础资料。现在这一版会实时读取你的输入，并在右侧显示预览。"}
+              ? "修改后立即生效。"
+              : "填写基础资料。"}
           </p>
-          {petId !== null && (
-            <Link
-              href="/my-pets"
-              className="mt-2 inline-block text-sm text-violet-600 transition hover:text-violet-800"
-            >
-              前往宠物管理页新建 →
-            </Link>
-          )}
         </div>
 
         <AuthSessionNotice authToken={authToken} className="mb-8" />
 
         <div className="grid gap-8 lg:grid-cols-2">
-          <form className="space-y-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <form className={`space-y-6 ${ui.card} p-6`}>
             <div>
               <label
                 htmlFor="petName"
@@ -329,7 +259,7 @@ function CreatePetPageContent() {
                 value={pet.petName}
                 onChange={(e) => handlePetChange("petName", e.target.value)}
                 placeholder="例如：小泡芙"
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500"
+                className={ui.input}
               />
             </div>
 
@@ -346,7 +276,7 @@ function CreatePetPageContent() {
                 disabled={isLoadingPet || isSavingPet}
                 value={pet.species}
                 onChange={(e) => handlePetChange("species", e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500"
+                className={ui.input}
               >
                 <option value="">请选择一个品种</option>
                 <option value="猫">猫</option>
@@ -372,7 +302,7 @@ function CreatePetPageContent() {
                 value={pet.color}
                 onChange={(e) => handlePetChange("color", e.target.value)}
                 placeholder="例如：橘白、纯黑、奶油色"
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500"
+                className={ui.input}
               />
             </div>
 
@@ -389,7 +319,7 @@ function CreatePetPageContent() {
                 disabled={isLoadingPet || isSavingPet}
                 value={pet.size}
                 onChange={(e) => handlePetChange("size", e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500"
+                className={ui.input}
               >
                 <option value="">请选择体型</option>
                 <option value="小型">小型</option>
@@ -413,7 +343,7 @@ function CreatePetPageContent() {
                 value={pet.personality}
                 onChange={(e) => handlePetChange("personality", e.target.value)}
                 placeholder="例如：很黏人，喜欢撒娇，看到新朋友会先观察一下。"
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500"
+                className={ui.input}
               />
             </div>
 
@@ -432,19 +362,15 @@ function CreatePetPageContent() {
                 value={pet.specialTraits}
                 onChange={(e) => handlePetChange("specialTraits", e.target.value)}
                 placeholder="例如：左耳有一点卷，尾巴尖是白色，脖子上有一圈浅色毛。"
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition focus:border-gray-500"
+                className={ui.input}
               />
             </div>
 
             {isLoadingPet ? (
-              <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-700">
-                正在读取你已经保存的宠物资料，请稍等一下。
+              <div className={ui.noticeInfo}>
+                正在读取宠物资料。
               </div>
             ) : null}
-
-            <div className="rounded-xl bg-gray-50 p-4 text-sm leading-6 text-gray-600">
-              现在这个页面会把宠物资料同步到后端。保存完成后，你可以在“我的宠物”页面继续查看和编辑。
-            </div>
 
             <div className="pt-2">
               <div className="flex flex-wrap items-center gap-3">
@@ -452,7 +378,7 @@ function CreatePetPageContent() {
                   type="button"
                   onClick={handleSavePet}
                   disabled={isLoadingPet || isSavingPet}
-                  className="inline-flex rounded-lg bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  className={ui.buttonPrimary}
                 >
                   {isSavingPet
                     ? "保存中..."
@@ -463,7 +389,7 @@ function CreatePetPageContent() {
 
                 <Link
                   href="/my-pet"
-                  className="text-sm text-gray-500 transition hover:text-gray-800"
+                  className={ui.buttonSubtle}
                 >
                   去查看我的宠物 →
                 </Link>
@@ -471,12 +397,12 @@ function CreatePetPageContent() {
 
               {feedback ? (
                 <div
-                  className={`mt-4 rounded-xl border px-4 py-3 text-sm leading-6 ${
+                  className={`mt-4 ${
                     feedback.type === "success"
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      ? ui.noticeSuccess
                       : feedback.type === "error"
-                        ? "border-rose-200 bg-rose-50 text-rose-700"
-                        : "border-amber-200 bg-amber-50 text-amber-700"
+                        ? ui.noticeError
+                        : ui.noticeInfo
                   }`}
                 >
                   {feedback.message}
@@ -485,23 +411,20 @@ function CreatePetPageContent() {
             </div>
           </form>
 
-          <section className="rounded-[28px] border border-orange-100 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-6 shadow-sm">
+          <section className={`${ui.cardWarm} p-6`}>
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-semibold text-gray-900">
                   宠物资料预览
                 </h2>
-                <p className="mt-2 text-sm leading-6 text-gray-600">
-                  右侧会把你当前填写的内容整理成更像产品里的宠物资料卡片。
-                </p>
               </div>
 
-              <div className="rounded-full border border-white/80 bg-white/90 px-3 py-1 text-xs font-medium text-amber-700 shadow-sm">
+              <div className={ui.chip}>
                 实时同步
               </div>
             </div>
 
-            <div className="mt-6 overflow-hidden rounded-[28px] border border-orange-100 bg-white shadow-[0_20px_60px_-24px_rgba(180,83,9,0.35)]">
+            <div className={`mt-6 overflow-hidden ${ui.cardInset}`}>
               <div className="bg-gradient-to-br from-orange-100 via-amber-50 to-white p-6">
                 <div className="flex items-start gap-4">
                   <div className="flex flex-col items-center">
@@ -523,9 +446,6 @@ function CreatePetPageContent() {
                     <h3 className="mt-2 text-3xl font-semibold tracking-tight text-gray-900">
                       {petCardName}
                     </h3>
-                    <p className="mt-2 text-sm leading-6 text-gray-600">
-                      当前资料会根据左侧输入实时更新，方便你快速确认宠物设定是否完整。
-                    </p>
 
                     <div className="mt-4 flex flex-wrap gap-2">
                       <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-gray-600 shadow-sm">
@@ -621,19 +541,19 @@ function CreatePetPageContent() {
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-dashed border-orange-200 bg-orange-50/70 p-4 text-sm leading-6 text-gray-600">
-                  现在这张资料卡已经能用品种图标、颜色展示和体型标签，先把宠物的外貌感做出来，后续如果接图片也能自然延展。
+                  外观和设定会随输入实时更新。
                 </div>
               </div>
 
               <div className="space-y-4 p-6">
-                <div className="rounded-2xl bg-gray-50 p-4">
+                <div className={`${ui.cardSoft} p-4`}>
                   <p className="text-sm font-medium text-gray-900">性格摘要</p>
                   <p className="mt-3 text-sm leading-7 text-gray-600">
                     {petCardPersonality}
                   </p>
                 </div>
 
-                <div className="rounded-2xl bg-gray-50 p-4">
+                <div className={`${ui.cardSoft} p-4`}>
                   <p className="text-sm font-medium text-gray-900">
                     特殊特征摘要
                   </p>

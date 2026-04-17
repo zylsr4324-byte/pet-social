@@ -10,6 +10,7 @@ import {
   getRoomConfig,
   getRoomIndex,
   HOME_SCENE_OBJECTS,
+  type HomeSocialEmotion,
   type HomeSceneBehavior,
   type HomeRoomId,
   type HomeSceneObjectAction,
@@ -27,6 +28,7 @@ export type PetSceneData = {
   petName: string;
   petSpecies: string;
   petStatus: PetStatus | null;
+  recentSocialEmotion?: HomeSocialEmotion | null;
 };
 
 type PetHomeSceneProps = {
@@ -120,6 +122,23 @@ const WINDOW_THICKNESS = 12;
 const ROOM_TRANSITION_MS = 300;
 const ROOM_GLASS_COLOR = 0xbfe3ff;
 const ROOM_SHADOW_COLOR = 0x8c755b;
+const FLOOR_TEXTURE_KEYS = {
+  wood: "home-floor-wood",
+  carpet: "home-floor-carpet",
+  tile: "home-floor-tile",
+} as const satisfies Record<RoomConfig["floorStyle"], string>;
+const FURNITURE_TEXTURE_KEYS = {
+  feed: "home-furniture-feed",
+  drink: "home-furniture-drink",
+  play: "home-furniture-play",
+  bed: "home-furniture-bed",
+  sofa: "home-furniture-sofa",
+  catTree: "home-furniture-cat-tree",
+  table: "home-furniture-table",
+  plant: "home-furniture-plant",
+  generic: "home-furniture-generic",
+} as const satisfies Record<FurnitureVisualKey, string>;
+const WALL_TEXTURE_KEY = "home-wall-surface";
 
 function toTileKey(tile: TilePoint) {
   return `${tile.tileX}:${tile.tileY}`;
@@ -498,55 +517,348 @@ function getFurnitureVisualKey(
   }
 }
 
+function generateTextureIfMissing(
+  scene: PhaserType.Scene,
+  key: string,
+  width: number,
+  height: number,
+  draw: (graphics: PhaserType.GameObjects.Graphics) => void
+) {
+  if (scene.textures.exists(key)) {
+    return;
+  }
+
+  const graphics = scene.add.graphics();
+  graphics.setVisible(false);
+  draw(graphics);
+  graphics.generateTexture(key, width, height);
+  graphics.destroy();
+}
+
+function ensureHomeSceneTextures(scene: PhaserType.Scene) {
+  generateTextureIfMissing(scene, FLOOR_TEXTURE_KEYS.wood, 96, 96, (graphics) => {
+    graphics.fillStyle(0xc79268, 1);
+    graphics.fillRect(0, 0, 96, 96);
+
+    for (let y = 0; y < 96; y += 24) {
+      graphics.fillStyle(y % 48 === 0 ? 0xd8a57b : 0xb77d56, 0.9);
+      graphics.fillRect(0, y, 96, 12);
+    }
+
+    graphics.lineStyle(2, 0x8d5738, 0.36);
+    [32, 64].forEach((x) => {
+      graphics.lineBetween(x, 0, x, 96);
+    });
+
+    graphics.lineStyle(1, 0xffffff, 0.14);
+    for (let y = 6; y < 96; y += 24) {
+      graphics.lineBetween(0, y, 96, y);
+    }
+
+    graphics.fillStyle(0x875536, 0.18);
+    graphics.fillEllipse(18, 18, 12, 8);
+    graphics.fillEllipse(68, 58, 16, 9);
+    graphics.fillEllipse(42, 82, 10, 6);
+  });
+
+  generateTextureIfMissing(scene, FLOOR_TEXTURE_KEYS.carpet, 96, 96, (graphics) => {
+    graphics.fillStyle(0xe8dece, 1);
+    graphics.fillRect(0, 0, 96, 96);
+
+    graphics.lineStyle(1, 0xffffff, 0.1);
+    for (let x = 0; x <= 96; x += 10) {
+      graphics.lineBetween(x, 0, Math.max(0, x - 18), 96);
+    }
+
+    graphics.lineStyle(1, 0xd4c3ad, 0.18);
+    for (let x = -12; x <= 96; x += 10) {
+      graphics.lineBetween(x, 0, Math.min(96, x + 18), 96);
+    }
+
+    for (let y = 8; y < 96; y += 24) {
+      graphics.fillStyle(0xf7efe4, 0.08);
+      graphics.fillRect(0, y, 96, 8);
+    }
+  });
+
+  generateTextureIfMissing(scene, FLOOR_TEXTURE_KEYS.tile, 96, 96, (graphics) => {
+    graphics.fillStyle(0xd2cbc2, 1);
+    graphics.fillRect(0, 0, 96, 96);
+
+    for (let tileX = 0; tileX < 3; tileX += 1) {
+      for (let tileY = 0; tileY < 3; tileY += 1) {
+        const x = tileX * 32 + 2;
+        const y = tileY * 32 + 2;
+        graphics.fillStyle((tileX + tileY) % 2 === 0 ? 0xf0ebe4 : 0xe1dad2, 1);
+        graphics.fillRoundedRect(x, y, 28, 28, 6);
+        graphics.fillStyle(0xffffff, 0.1);
+        graphics.fillRoundedRect(x + 4, y + 4, 10, 4, 3);
+      }
+    }
+
+    graphics.lineStyle(4, 0xc7c0b7, 1);
+    for (let x = 0; x <= 96; x += 32) {
+      graphics.lineBetween(x, 0, x, 96);
+    }
+    for (let y = 0; y <= 96; y += 32) {
+      graphics.lineBetween(0, y, 96, y);
+    }
+  });
+
+  generateTextureIfMissing(scene, WALL_TEXTURE_KEY, 80, 80, (graphics) => {
+    graphics.fillStyle(0xfaf4eb, 1);
+    graphics.fillRect(0, 0, 80, 80);
+
+    graphics.lineStyle(1, 0xe4d9c8, 0.18);
+    for (let x = 12; x < 80; x += 16) {
+      graphics.lineBetween(x, 0, x, 80);
+    }
+
+    graphics.fillStyle(0xffffff, 0.1);
+    for (let y = 10; y < 80; y += 24) {
+      graphics.fillRect(0, y, 80, 8);
+    }
+
+    graphics.fillStyle(0xe7dbc9, 0.12);
+    graphics.fillCircle(18, 18, 5);
+    graphics.fillCircle(60, 48, 6);
+    graphics.fillCircle(26, 66, 4);
+  });
+
+  generateTextureIfMissing(scene, FURNITURE_TEXTURE_KEYS.feed, 96, 96, (graphics) => {
+    graphics.fillStyle(0x000000, 0.16);
+    graphics.fillEllipse(48, 66, 54, 14);
+    graphics.fillStyle(0xe9cbad, 1);
+    graphics.fillEllipse(48, 50, 64, 28);
+    graphics.fillStyle(0xc6813e, 1);
+    graphics.fillEllipse(48, 50, 52, 18);
+    graphics.fillStyle(0xf59e0b, 1);
+    graphics.fillEllipse(48, 47, 38, 11);
+    graphics.fillStyle(0xfcd34d, 0.9);
+    graphics.fillCircle(38, 46, 4);
+    graphics.fillCircle(49, 49, 3);
+    graphics.fillCircle(57, 44, 4);
+    graphics.lineStyle(3, 0x8f5b2d, 0.7);
+    graphics.strokeEllipse(48, 50, 64, 28);
+  });
+
+  generateTextureIfMissing(scene, FURNITURE_TEXTURE_KEYS.drink, 96, 96, (graphics) => {
+    graphics.fillStyle(0x000000, 0.14);
+    graphics.fillEllipse(48, 66, 54, 14);
+    graphics.fillStyle(0xe7eef7, 1);
+    graphics.fillEllipse(48, 50, 64, 28);
+    graphics.fillStyle(0x5b9ed6, 1);
+    graphics.fillEllipse(48, 50, 52, 18);
+    graphics.fillStyle(0x8ad7ff, 0.72);
+    graphics.fillEllipse(48, 46, 38, 9);
+    graphics.fillStyle(0xffffff, 0.4);
+    graphics.fillEllipse(39, 45, 10, 4);
+    graphics.lineStyle(3, 0x507da6, 0.72);
+    graphics.strokeEllipse(48, 50, 64, 28);
+  });
+
+  generateTextureIfMissing(scene, FURNITURE_TEXTURE_KEYS.play, 96, 96, (graphics) => {
+    graphics.fillStyle(0x000000, 0.12);
+    graphics.fillEllipse(48, 70, 40, 12);
+    graphics.lineStyle(3, 0xc68b26, 0.7);
+    graphics.lineBetween(18, 76, 40, 58);
+    graphics.fillStyle(0xfb7185, 1);
+    graphics.fillCircle(48, 50, 24);
+    graphics.lineStyle(4, 0xffffff, 0.88);
+    graphics.lineBetween(31, 67, 65, 33);
+    graphics.lineStyle(3, 0xd94767, 0.84);
+    graphics.strokeCircle(48, 50, 24);
+    graphics.fillStyle(0xfde68a, 1);
+    graphics.fillCircle(63, 35, 9);
+    graphics.fillStyle(0xffffff, 0.28);
+    graphics.fillCircle(40, 41, 7);
+  });
+
+  generateTextureIfMissing(scene, FURNITURE_TEXTURE_KEYS.bed, 160, 120, (graphics) => {
+    graphics.fillStyle(0x000000, 0.16);
+    graphics.fillEllipse(80, 104, 118, 18);
+    graphics.fillStyle(0x8d6ad8, 1);
+    graphics.fillRoundedRect(12, 18, 136, 82, 20);
+    graphics.fillStyle(0xb89af7, 1);
+    graphics.fillRoundedRect(22, 28, 116, 64, 16);
+    graphics.fillStyle(0xf8f6ff, 1);
+    graphics.fillRoundedRect(28, 34, 46, 22, 12);
+    graphics.fillRoundedRect(86, 34, 46, 22, 12);
+    graphics.fillStyle(0xe7ddff, 1);
+    graphics.fillRoundedRect(26, 58, 108, 26, 12);
+    graphics.fillStyle(0xd5c4ff, 0.85);
+    graphics.fillRoundedRect(26, 72, 108, 12, 10);
+    graphics.fillStyle(0x6f4bc5, 0.72);
+    graphics.fillRect(12, 18, 136, 10);
+    graphics.lineStyle(4, 0x6d4bb5, 0.78);
+    graphics.strokeRoundedRect(12, 18, 136, 82, 20);
+  });
+
+  generateTextureIfMissing(scene, FURNITURE_TEXTURE_KEYS.sofa, 160, 112, (graphics) => {
+    graphics.fillStyle(0x000000, 0.14);
+    graphics.fillEllipse(80, 96, 112, 18);
+    graphics.fillStyle(0x8a5838, 1);
+    graphics.fillRoundedRect(18, 46, 124, 36, 18);
+    graphics.fillRoundedRect(8, 30, 28, 58, 16);
+    graphics.fillRoundedRect(124, 30, 28, 58, 16);
+    graphics.fillStyle(0xa66d45, 1);
+    graphics.fillRoundedRect(24, 18, 112, 34, 18);
+    graphics.fillStyle(0xc58a63, 0.95);
+    graphics.fillRoundedRect(28, 28, 48, 30, 14);
+    graphics.fillRoundedRect(84, 28, 48, 30, 14);
+    graphics.fillStyle(0xe4b48b, 0.28);
+    graphics.fillRoundedRect(26, 22, 108, 8, 8);
+    graphics.lineStyle(3, 0x6f442b, 0.72);
+    graphics.strokeRoundedRect(18, 46, 124, 36, 18);
+  });
+
+  generateTextureIfMissing(scene, FURNITURE_TEXTURE_KEYS.catTree, 120, 160, (graphics) => {
+    graphics.fillStyle(0x000000, 0.14);
+    graphics.fillEllipse(60, 146, 82, 16);
+    graphics.fillStyle(0xb58a63, 1);
+    graphics.fillRect(32, 62, 16, 72);
+    graphics.fillRect(72, 44, 16, 90);
+    graphics.fillStyle(0xd6b08b, 1);
+    graphics.fillRoundedRect(14, 120, 92, 18, 10);
+    graphics.fillRoundedRect(18, 56, 70, 16, 9);
+    graphics.fillRoundedRect(52, 28, 48, 14, 8);
+    graphics.fillStyle(0x46a758, 0.2);
+    graphics.fillCircle(92, 44, 10);
+    graphics.lineStyle(3, 0x9a734f, 0.76);
+    graphics.strokeRoundedRect(14, 120, 92, 18, 10);
+  });
+
+  generateTextureIfMissing(scene, FURNITURE_TEXTURE_KEYS.table, 120, 120, (graphics) => {
+    graphics.fillStyle(0x000000, 0.14);
+    graphics.fillEllipse(60, 104, 78, 14);
+    graphics.fillStyle(0x9d6d45, 1);
+    graphics.fillRoundedRect(12, 22, 96, 26, 12);
+    graphics.fillStyle(0xb68257, 1);
+    graphics.fillRoundedRect(18, 18, 84, 12, 8);
+    graphics.fillStyle(0x8c5d38, 1);
+    graphics.fillRect(24, 44, 10, 44);
+    graphics.fillRect(86, 44, 10, 44);
+    graphics.fillRect(24, 62, 10, 24);
+    graphics.fillRect(86, 62, 10, 24);
+    graphics.lineStyle(3, 0x764a2d, 0.76);
+    graphics.strokeRoundedRect(12, 22, 96, 26, 12);
+  });
+
+  generateTextureIfMissing(scene, FURNITURE_TEXTURE_KEYS.plant, 96, 120, (graphics) => {
+    graphics.fillStyle(0x000000, 0.14);
+    graphics.fillEllipse(48, 108, 44, 12);
+    graphics.fillStyle(0xb26a3c, 1);
+    graphics.fillRoundedRect(28, 72, 40, 28, 10);
+    graphics.fillStyle(0xd1814a, 0.48);
+    graphics.fillRoundedRect(34, 76, 28, 8, 6);
+    graphics.fillStyle(0x459b52, 1);
+    graphics.fillEllipse(34, 58, 20, 40);
+    graphics.fillEllipse(62, 52, 22, 44);
+    graphics.fillEllipse(48, 34, 24, 52);
+    graphics.fillStyle(0x78ca84, 0.28);
+    graphics.fillEllipse(41, 42, 10, 22);
+    graphics.fillEllipse(57, 40, 10, 22);
+  });
+
+  generateTextureIfMissing(scene, FURNITURE_TEXTURE_KEYS.generic, 120, 96, (graphics) => {
+    graphics.fillStyle(0x000000, 0.12);
+    graphics.fillEllipse(60, 84, 74, 12);
+    graphics.fillStyle(0xe5d9c9, 1);
+    graphics.fillRoundedRect(16, 18, 88, 52, 12);
+    graphics.fillStyle(0xf3eadf, 0.56);
+    graphics.fillRoundedRect(22, 24, 76, 14, 8);
+    graphics.lineStyle(3, 0xb79d86, 0.88);
+    graphics.strokeRoundedRect(16, 18, 88, 52, 12);
+    graphics.lineBetween(60, 18, 60, 70);
+    graphics.lineBetween(16, 44, 104, 44);
+  });
+}
+
+function getFurnitureVisualBounds(
+  visualKey: FurnitureVisualKey,
+  widthPx: number,
+  heightPx: number
+) {
+  const { width, height } = buildVisualSize(widthPx, heightPx);
+
+  switch (visualKey) {
+    case "feed":
+    case "drink":
+    case "play": {
+      const size = Math.min(width, height);
+      return { width: size, height: size };
+    }
+    case "plant":
+      return {
+        width: Math.max(width, 52),
+        height: Math.max(height + 8, 60),
+      };
+    default:
+      return { width, height };
+  }
+}
+
 function drawFloorPattern(
   scene: PhaserType.Scene,
   target: PhaserType.GameObjects.Container,
   room: RoomConfig
 ) {
-  const floor = scene.add.graphics();
-  floor.fillStyle(room.floorColor, 1);
-  floor.fillRect(
+  const floor = scene.add.tileSprite(
     WALL_THICKNESS,
     WALL_THICKNESS,
     SCENE_WIDTH - WALL_THICKNESS * 2,
-    SCENE_HEIGHT - WALL_THICKNESS * 2
+    SCENE_HEIGHT - WALL_THICKNESS * 2,
+    FLOOR_TEXTURE_KEYS[room.floorStyle]
   );
-
-  if (room.floorStyle === "wood") {
-    for (let y = WALL_THICKNESS; y < SCENE_HEIGHT - WALL_THICKNESS; y += 26) {
-      const shade = y % 52 === 0 ? 0xd9a87f : 0xba835b;
-      floor.fillStyle(shade, 0.26);
-      floor.fillRect(
-        WALL_THICKNESS,
-        y,
-        SCENE_WIDTH - WALL_THICKNESS * 2,
-        14
-      );
-    }
-    floor.lineStyle(2, 0xa86d47, 0.3);
-    for (let x = WALL_THICKNESS + 48; x < SCENE_WIDTH - WALL_THICKNESS; x += 72) {
-      floor.lineBetween(x, WALL_THICKNESS, x, SCENE_HEIGHT - WALL_THICKNESS);
-    }
-  } else if (room.floorStyle === "carpet") {
-    for (let x = WALL_THICKNESS + 8; x < SCENE_WIDTH - WALL_THICKNESS; x += 12) {
-      floor.lineStyle(1, 0xddcfb9, 0.32);
-      floor.lineBetween(x, WALL_THICKNESS + 10, x - 6, SCENE_HEIGHT - WALL_THICKNESS - 10);
-    }
-    for (let y = WALL_THICKNESS + 18; y < SCENE_HEIGHT - WALL_THICKNESS; y += 26) {
-      floor.lineStyle(1, 0xffffff, 0.16);
-      floor.lineBetween(WALL_THICKNESS + 12, y, SCENE_WIDTH - WALL_THICKNESS - 12, y);
-    }
-  } else {
-    floor.lineStyle(2, 0xcfcfcf, 0.95);
-    for (let x = WALL_THICKNESS; x <= SCENE_WIDTH - WALL_THICKNESS; x += 64) {
-      floor.lineBetween(x, WALL_THICKNESS, x, SCENE_HEIGHT - WALL_THICKNESS);
-    }
-    for (let y = WALL_THICKNESS; y <= SCENE_HEIGHT - WALL_THICKNESS; y += 64) {
-      floor.lineBetween(WALL_THICKNESS, y, SCENE_WIDTH - WALL_THICKNESS, y);
-    }
-  }
-
+  floor.setOrigin(0);
   target.add(floor);
+
+  const floorShade = scene.add.graphics();
+  floorShade.fillStyle(0xffffff, 0.08);
+  floorShade.fillRoundedRect(
+    WALL_THICKNESS + 10,
+    WALL_THICKNESS + 10,
+    SCENE_WIDTH - WALL_THICKNESS * 2 - 20,
+    34,
+    14
+  );
+  floorShade.fillStyle(0x000000, 0.08);
+  floorShade.fillRoundedRect(
+    WALL_THICKNESS + 12,
+    SCENE_HEIGHT - WALL_THICKNESS - 30,
+    SCENE_WIDTH - WALL_THICKNESS * 2 - 24,
+    14,
+    8
+  );
+  target.add(floorShade);
+
+  room.windows.forEach((windowMeta) => {
+    const opening = getOpeningRect(windowMeta);
+    const width =
+      windowMeta.side === "north" || windowMeta.side === "south"
+        ? opening.width * 1.3
+        : 86;
+    const height =
+      windowMeta.side === "north" || windowMeta.side === "south"
+        ? 112
+        : opening.height * 1.45;
+    const offsetX =
+      windowMeta.side === "west" ? 42 : windowMeta.side === "east" ? -42 : 0;
+    const offsetY =
+      windowMeta.side === "north" ? 42 : windowMeta.side === "south" ? -42 : 0;
+    const light = scene.add.ellipse(
+      opening.x + opening.width / 2 + offsetX,
+      opening.y + opening.height / 2 + offsetY,
+      width,
+      height,
+      0xfff7d6,
+      0.16
+    );
+    light.setAngle(
+      windowMeta.side === "west" || windowMeta.side === "east" ? 90 : 0
+    );
+    target.add(light);
+  });
 }
 
 function getOpeningRect(opening: RoomConfig["doors"][number]) {
@@ -577,27 +889,77 @@ function drawWalls(
   target: PhaserType.GameObjects.Container,
   room: RoomConfig
 ) {
-  const wall = scene.add.graphics();
-  wall.fillStyle(room.wallColor, 1);
-  wall.fillRect(0, 0, SCENE_WIDTH, WALL_THICKNESS);
-  wall.fillRect(0, SCENE_HEIGHT - WALL_THICKNESS, SCENE_WIDTH, WALL_THICKNESS);
-  wall.fillRect(0, 0, WALL_THICKNESS, SCENE_HEIGHT);
-  wall.fillRect(SCENE_WIDTH - WALL_THICKNESS, 0, WALL_THICKNESS, SCENE_HEIGHT);
+  [
+    scene.add.tileSprite(0, 0, SCENE_WIDTH, WALL_THICKNESS, WALL_TEXTURE_KEY),
+    scene.add.tileSprite(
+      0,
+      SCENE_HEIGHT - WALL_THICKNESS,
+      SCENE_WIDTH,
+      WALL_THICKNESS,
+      WALL_TEXTURE_KEY
+    ),
+    scene.add.tileSprite(0, 0, WALL_THICKNESS, SCENE_HEIGHT, WALL_TEXTURE_KEY),
+    scene.add.tileSprite(
+      SCENE_WIDTH - WALL_THICKNESS,
+      0,
+      WALL_THICKNESS,
+      SCENE_HEIGHT,
+      WALL_TEXTURE_KEY
+    ),
+  ].forEach((wallPiece) => {
+    wallPiece.setOrigin(0);
+    wallPiece.setTint(room.wallColor);
+    target.add(wallPiece);
+  });
 
   room.doors.forEach((door) => {
     const opening = getOpeningRect(door);
-    wall.fillStyle(room.floorColor, 1);
-    wall.fillRect(opening.x, opening.y, opening.width, opening.height);
+    const openingFill = scene.add.rectangle(
+      opening.x,
+      opening.y,
+      opening.width,
+      opening.height,
+      room.floorColor,
+      1
+    );
+    openingFill.setOrigin(0);
+    target.add(openingFill);
   });
 
-  wall.lineStyle(2, ROOM_SHADOW_COLOR, 0.28);
-  wall.strokeRect(
+  const trim = scene.add.graphics();
+  trim.fillStyle(room.trimColor, 0.5);
+  trim.fillRect(
+    WALL_THICKNESS,
+    WALL_THICKNESS,
+    SCENE_WIDTH - WALL_THICKNESS * 2,
+    5
+  );
+  trim.fillRect(
+    WALL_THICKNESS,
+    SCENE_HEIGHT - WALL_THICKNESS - 5,
+    SCENE_WIDTH - WALL_THICKNESS * 2,
+    5
+  );
+  trim.fillRect(
+    WALL_THICKNESS,
+    WALL_THICKNESS,
+    5,
+    SCENE_HEIGHT - WALL_THICKNESS * 2
+  );
+  trim.fillRect(
+    SCENE_WIDTH - WALL_THICKNESS - 5,
+    WALL_THICKNESS,
+    5,
+    SCENE_HEIGHT - WALL_THICKNESS * 2
+  );
+  trim.lineStyle(2, ROOM_SHADOW_COLOR, 0.28);
+  trim.strokeRect(
     WALL_THICKNESS / 2,
     WALL_THICKNESS / 2,
     SCENE_WIDTH - WALL_THICKNESS,
     SCENE_HEIGHT - WALL_THICKNESS
   );
-  target.add(wall);
+  target.add(trim);
 
   const shadow = scene.add.graphics();
   shadow.fillStyle(0x000000, 0.06);
@@ -623,6 +985,30 @@ function drawDoors(
 ) {
   room.doors.forEach((door) => {
     const opening = getOpeningRect(door);
+    const threshold = scene.add.graphics();
+    threshold.fillStyle(0x8c684e, 0.26);
+
+    if (door.side === "north" || door.side === "south") {
+      threshold.fillRoundedRect(
+        opening.x + 6,
+        door.side === "north"
+          ? WALL_THICKNESS + 2
+          : SCENE_HEIGHT - WALL_THICKNESS - 8,
+        opening.width - 12,
+        6,
+        3
+      );
+    } else {
+      threshold.fillRoundedRect(
+        door.side === "west" ? WALL_THICKNESS + 2 : SCENE_WIDTH - WALL_THICKNESS - 8,
+        opening.y + 6,
+        6,
+        opening.height - 12,
+        3
+      );
+    }
+    target.add(threshold);
+
     const frame = scene.add.graphics();
     frame.lineStyle(3, room.trimColor, 0.8);
 
@@ -700,6 +1086,23 @@ function drawWindows(
     }
 
     target.add(windowShape);
+
+    const glow = scene.add.graphics();
+    glow.fillStyle(0xffffff, 0.22);
+    if (windowMeta.side === "north" || windowMeta.side === "south") {
+      const y =
+        windowMeta.side === "north"
+          ? WALL_THICKNESS + 1
+          : SCENE_HEIGHT - WALL_THICKNESS - 5;
+      glow.fillRoundedRect(opening.x + 8, y, opening.width - 16, 4, 2);
+    } else {
+      const x =
+        windowMeta.side === "west"
+          ? WALL_THICKNESS + 1
+          : SCENE_WIDTH - WALL_THICKNESS - 5;
+      glow.fillRoundedRect(x, opening.y + 8, 4, opening.height - 16, 2);
+    }
+    target.add(glow);
   });
 }
 
@@ -746,110 +1149,6 @@ function buildVisualSize(widthPx: number, heightPx: number) {
   };
 }
 
-function drawFurnitureShape(
-  graphics: PhaserType.GameObjects.Graphics,
-  visualKey: FurnitureVisualKey,
-  widthPx: number,
-  heightPx: number
-) {
-  const { width, height } = buildVisualSize(widthPx, heightPx);
-  const halfW = width / 2;
-  const halfH = height / 2;
-
-  switch (visualKey) {
-    case "feed": {
-      const radius = Math.min(width, height) / 2 - 4;
-      graphics.fillStyle(0xf7d7b4, 1);
-      graphics.fillCircle(0, 0, radius);
-      graphics.lineStyle(4, 0xc57c2f, 1);
-      graphics.strokeCircle(0, 0, radius);
-      graphics.lineStyle(3, 0xf59e0b, 1);
-      graphics.strokeCircle(0, 0, radius - 7);
-      return { width: radius * 2 + 8, height: radius * 2 + 8 };
-    }
-    case "drink": {
-      const radius = Math.min(width, height) / 2 - 4;
-      graphics.fillStyle(0xe7f6ff, 1);
-      graphics.fillCircle(0, 0, radius);
-      graphics.lineStyle(4, 0x5ea2d8, 1);
-      graphics.strokeCircle(0, 0, radius);
-      graphics.fillStyle(0x60a5fa, 0.85);
-      graphics.fillCircle(0, 1, radius - 7);
-      return { width: radius * 2 + 8, height: radius * 2 + 8 };
-    }
-    case "play": {
-      const radius = Math.min(width, height) / 2 - 2;
-      graphics.fillStyle(0xfb7185, 1);
-      graphics.fillCircle(0, 0, radius);
-      graphics.lineStyle(3, 0xffffff, 1);
-      graphics.lineBetween(-radius * 0.65, radius * 0.65, radius * 0.65, -radius * 0.65);
-      graphics.strokeCircle(0, 0, radius);
-      graphics.fillStyle(0xfde68a, 1);
-      graphics.fillTriangle(
-        -radius * 0.15,
-        -radius,
-        radius,
-        0,
-        -radius * 0.15,
-        radius
-      );
-      return { width: radius * 2 + 6, height: radius * 2 + 6 };
-    }
-    case "bed": {
-      graphics.fillStyle(0xa78bfa, 0.28);
-      graphics.fillRoundedRect(-halfW, -halfH, width, height, 14);
-      graphics.fillStyle(0xc4b5fd, 1);
-      graphics.fillRoundedRect(-halfW + 6, -halfH + 6, width - 12, height - 12, 12);
-      graphics.fillStyle(0x8b6dd7, 1);
-      graphics.fillRect(-halfW, -halfH, width, 14);
-      graphics.fillStyle(0xf8f7ff, 0.95);
-      graphics.fillRoundedRect(-halfW + 18, -halfH + 18, width - 36, height - 28, 12);
-      return { width, height };
-    }
-    case "sofa": {
-      graphics.fillStyle(0x7a4d2d, 1);
-      graphics.fillRoundedRect(-halfW, -halfH + 14, width, height - 14, 16);
-      graphics.fillRect(-halfW + 10, -halfH, width - 20, 18);
-      graphics.fillRect(-halfW, -halfH + 12, 18, height - 22);
-      graphics.fillRect(halfW - 18, -halfH + 12, 18, height - 22);
-      return { width, height };
-    }
-    case "catTree": {
-      graphics.fillStyle(0xb58a63, 1);
-      graphics.fillRect(-12, -halfH + 12, 24, height - 16);
-      graphics.fillStyle(0xd1b08d, 1);
-      graphics.fillRoundedRect(-halfW, -halfH + 4, width, 18, 8);
-      graphics.fillRoundedRect(-halfW + 10, halfH - 18, width - 20, 16, 8);
-      return { width, height };
-    }
-    case "table": {
-      graphics.fillStyle(0x9b6b42, 1);
-      graphics.fillRoundedRect(-halfW, -halfH + 4, width, height - 16, 10);
-      graphics.fillRect(-halfW + 10, halfH - 14, 10, 14);
-      graphics.fillRect(halfW - 20, halfH - 14, 10, 14);
-      graphics.fillRect(-halfW + 10, -halfH + 4, 10, 14);
-      graphics.fillRect(halfW - 20, -halfH + 4, 10, 14);
-      return { width, height };
-    }
-    case "plant": {
-      graphics.fillStyle(0xb26a3c, 1);
-      graphics.fillRoundedRect(-20, 4, 40, 24, 8);
-      graphics.fillStyle(0x46a758, 1);
-      graphics.fillCircle(-10, -6, 12);
-      graphics.fillCircle(10, -8, 14);
-      graphics.fillCircle(0, -16, 13);
-      return { width: 52, height: 60 };
-    }
-    default: {
-      graphics.fillStyle(0xe7dccd, 1);
-      graphics.fillRoundedRect(-halfW, -halfH, width, height, 12);
-      graphics.lineStyle(3, 0xb89e86, 0.95);
-      graphics.strokeRoundedRect(-halfW, -halfH, width, height, 12);
-      return { width, height };
-    }
-  }
-}
-
 function createFurnitureNode(
   scene: PhaserType.Scene,
   runtime: typeof import("phaser"),
@@ -863,9 +1162,23 @@ function createFurnitureNode(
   onPress: (() => void) | null
 ) {
   const container = scene.add.container(x, y);
-  const graphic = scene.add.graphics();
-  const bounds = drawFurnitureShape(graphic, visualKey, widthPx, heightPx);
-  container.add(graphic);
+  const bounds = getFurnitureVisualBounds(visualKey, widthPx, heightPx);
+
+  const shadow = scene.add.ellipse(
+    0,
+    bounds.height / 2 - Math.max(8, bounds.height * 0.12),
+    Math.max(28, bounds.width * 0.74),
+    Math.max(10, bounds.height * 0.22),
+    0x000000,
+    0.16
+  );
+  shadow.setScale(1, 0.72);
+  container.add(shadow);
+
+  const visual = scene.add.image(0, 0, FURNITURE_TEXTURE_KEYS[visualKey]);
+  visual.setDisplaySize(bounds.width, bounds.height);
+  visual.setOrigin(0.5);
+  container.add(visual);
 
   const caption = scene.add.text(0, bounds.height / 2 + 10, label, {
     color: "#4b3626",
@@ -1079,6 +1392,8 @@ function createHomeScene(
       (obstacle) => obstacle.action === "play" || obstacle.category === "toy"
     ),
     hasOtherPets: refs.petsRef.current.some((pet) => pet.id !== petId),
+    socialEmotion:
+      refs.petsRef.current.find((pet) => pet.id === petId)?.recentSocialEmotion ?? null,
   });
 
   const findIdlePath = (
@@ -1241,24 +1556,59 @@ function createHomeScene(
         return;
       case "social":
         sprite.mouth.setText("o");
-        popEmoji(sprite.container.x, sprite.container.y, "\u{1F44B}");
+        if (petData.recentSocialEmotion === "warm") {
+          popEmoji(sprite.container.x, sprite.container.y, "\u2764");
+          showPetFloatingText(sprite, "靠近一点", 1000);
+        } else if (petData.recentSocialEmotion === "curious") {
+          popEmoji(sprite.container.x, sprite.container.y, "\u{1F440}");
+          showPetFloatingText(sprite, "先闻闻看", 1000);
+        } else if (petData.recentSocialEmotion === "excited") {
+          popEmoji(sprite.container.x, sprite.container.y, "\u2728");
+          showPetFloatingText(sprite, "好耶", 900);
+        } else if (petData.recentSocialEmotion === "calm") {
+          popEmoji(sprite.container.x, sprite.container.y, "\u{1F44B}");
+          showPetFloatingText(sprite, "慢慢靠近", 1000);
+        } else {
+          popEmoji(sprite.container.x, sprite.container.y, "\u{1F44B}");
+        }
         if (socialPartner) {
-          popEmoji(
-            socialPartner.container.x,
-            socialPartner.container.y,
-            "\u{1F44B}"
-          );
+          if (petData.recentSocialEmotion === "warm") {
+            popEmoji(socialPartner.container.x, socialPartner.container.y, "\u2764");
+          } else if (petData.recentSocialEmotion === "curious") {
+            popEmoji(socialPartner.container.x, socialPartner.container.y, "\u{1F440}");
+          } else if (petData.recentSocialEmotion === "excited") {
+            popEmoji(socialPartner.container.x, socialPartner.container.y, "\u2728");
+          } else {
+            popEmoji(socialPartner.container.x, socialPartner.container.y, "\u{1F44B}");
+          }
         }
         scene.tweens.add({
           targets: sprite.container,
-          scaleX: 1.04,
-          scaleY: 0.96,
+          scaleX:
+            petData.recentSocialEmotion === "excited"
+              ? 1.08
+              : petData.recentSocialEmotion === "guarded"
+                ? 0.98
+                : 1.04,
+          scaleY:
+            petData.recentSocialEmotion === "excited"
+              ? 0.92
+              : petData.recentSocialEmotion === "guarded"
+                ? 1.01
+                : 0.96,
           duration: 180,
           yoyo: true,
-          repeat: 1,
+          repeat: petData.recentSocialEmotion === "excited" ? 2 : 1,
           ease: "Sine.easeInOut",
+          angle:
+            petData.recentSocialEmotion === "curious"
+              ? -8
+              : petData.recentSocialEmotion === "guarded"
+                ? -3
+                : 0,
           onUpdate: () => updatePetLabelPosition(sprite),
           onComplete: () => {
+            sprite.container.setAngle(0);
             sprite.mouth.setText("-");
             finishPetAnimation(sprite, petData);
           },
@@ -1878,6 +2228,8 @@ function createHomeScene(
   };
 
   scene.create = () => {
+    ensureHomeSceneTextures(scene);
+
     (["living", "bedroom", "kitchen"] as HomeRoomId[]).forEach((roomId) => {
       roomLayers.set(roomId, createRoomLayer(scene, getRoomConfig(roomId), activeRoomId));
     });

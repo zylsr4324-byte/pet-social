@@ -7,6 +7,10 @@ export type SocialCandidate = {
   conversationId: number | null;
   canRequest: boolean;
   canChat: boolean;
+  relationshipScore: number;
+  relationshipSummary: string;
+  memorySummary: string;
+  recentTopics: string[];
 };
 
 export type SocialCandidateListResponse = {
@@ -21,6 +25,10 @@ export type Friendship = {
   direction: string;
   conversationId: number | null;
   lastMessagePreview: string | null;
+  relationshipScore: number;
+  relationshipSummary: string;
+  memorySummary: string;
+  recentTopics: string[];
   createdAt: string;
   acceptedAt: string | null;
 };
@@ -62,6 +70,8 @@ export type SocialMessage = {
   conversationId: number;
   senderPetId: number;
   content: string;
+  emotion: string | null;
+  action: string | null;
   createdAt: string;
 };
 
@@ -69,6 +79,12 @@ export type SocialConversation = {
   conversationId: number;
   withPet: ApiPet;
   messages: SocialMessage[];
+};
+
+export type SocialReplyPayload = {
+  emotion: string;
+  action: string;
+  text: string;
 };
 
 export type SocialMessageListResponse = {
@@ -81,6 +97,7 @@ export type SocialSendResponse = {
   task: SocialTask;
   sentMessage: SocialMessage;
   replyMessage: SocialMessage;
+  reply: SocialReplyPayload;
   conversationId: number;
   targetPet: ApiPet;
 };
@@ -100,6 +117,237 @@ export type SocialCandidateSection = {
   description: string;
   candidates: SocialCandidate[];
 };
+
+export type SocialEmotionVisual = {
+  key: string;
+  label: string;
+  description: string;
+  bubbleClassName: string;
+  badgeClassName: string;
+  dotClassName: string;
+  panelClassName: string;
+  motionClassName: string;
+};
+
+const SOCIAL_EMOTION_VISUALS: Record<string, SocialEmotionVisual> = {
+  calm: {
+    key: "calm",
+    label: "平静",
+    description: "语气放慢，保持舒服距离。",
+    bubbleClassName: "border border-slate-200 bg-slate-50 text-slate-700",
+    badgeClassName: "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
+    dotClassName: "bg-slate-400",
+    panelClassName: "border-slate-200 bg-slate-50 text-slate-800",
+    motionClassName: "social-motion-calm",
+  },
+  curious: {
+    key: "curious",
+    label: "好奇",
+    description: "先观察，再试探着靠近。",
+    bubbleClassName: "border border-sky-200 bg-sky-50 text-sky-900",
+    badgeClassName: "bg-sky-100 text-sky-800 ring-1 ring-sky-200",
+    dotClassName: "bg-sky-400",
+    panelClassName: "border-sky-200 bg-sky-50 text-sky-900",
+    motionClassName: "social-motion-curious",
+  },
+  guarded: {
+    key: "guarded",
+    label: "戒备",
+    description: "距离感更强，回应更短。",
+    bubbleClassName: "border border-stone-300 bg-stone-100 text-stone-800",
+    badgeClassName: "bg-stone-200 text-stone-800 ring-1 ring-stone-300",
+    dotClassName: "bg-stone-500",
+    panelClassName: "border-stone-300 bg-stone-100 text-stone-900",
+    motionClassName: "social-motion-guarded",
+  },
+  excited: {
+    key: "excited",
+    label: "兴奋",
+    description: "反应更快，动作更外放。",
+    bubbleClassName: "border border-orange-200 bg-orange-50 text-orange-950",
+    badgeClassName: "bg-orange-100 text-orange-900 ring-1 ring-orange-200",
+    dotClassName: "bg-orange-500",
+    panelClassName: "border-orange-200 bg-orange-50 text-orange-950",
+    motionClassName: "social-motion-excited",
+  },
+  warm: {
+    key: "warm",
+    label: "亲近",
+    description: "愿意靠近，回应更柔和。",
+    bubbleClassName: "border border-amber-200 bg-amber-50 text-amber-950",
+    badgeClassName: "bg-amber-100 text-amber-900 ring-1 ring-amber-200",
+    dotClassName: "bg-amber-500",
+    panelClassName: "border-amber-200 bg-amber-50 text-amber-950",
+    motionClassName: "social-motion-warm",
+  },
+};
+
+export function getSocialEmotionVisual(
+  emotion: string | null | undefined
+): SocialEmotionVisual | null {
+  const normalizedEmotion = emotion?.trim().toLowerCase();
+  if (!normalizedEmotion) {
+    return null;
+  }
+  return SOCIAL_EMOTION_VISUALS[normalizedEmotion] ?? null;
+}
+
+export function getSocialMessageEventLine(
+  event: Pick<SocialMessage, "emotion" | "action">
+) {
+  const emotionVisual = getSocialEmotionVisual(event.emotion);
+  const action = event.action?.trim();
+
+  if (emotionVisual && action) {
+    return `${emotionVisual.label} · ${action}`;
+  }
+  if (emotionVisual) {
+    return emotionVisual.label;
+  }
+  return action || null;
+}
+
+export type SocialPresenceTone = {
+  label: string;
+  description: string;
+  className: string;
+};
+
+export function getSocialCandidatePresenceTone(
+  candidate: SocialCandidate
+): SocialPresenceTone {
+  const state = getSocialCandidateState(candidate);
+
+  if (state === "incoming_request") {
+    return {
+      label: "对方先靠近",
+      description: "这次最好给明确回应，别让对方的试探悬着。",
+      className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    };
+  }
+
+  if (state === "ready_to_chat" && candidate.relationshipScore >= 70) {
+    return {
+      label: "熟络互动",
+      description: "已经不只是试探，适合沿着共同记忆继续聊。",
+      className: "border-amber-200 bg-amber-50 text-amber-900",
+    };
+  }
+
+  if (state === "ready_to_chat") {
+    return {
+      label: "关系升温",
+      description: "已经能直接聊天，继续保持稳定来回会更自然。",
+      className: "border-sky-200 bg-sky-50 text-sky-800",
+    };
+  }
+
+  if (state === "outgoing_request") {
+    return {
+      label: "等待接球",
+      description: "你已经先伸出爪子，先别连续追发，留一点节奏。",
+      className: "border-orange-200 bg-orange-50 text-orange-800",
+    };
+  }
+
+  if (state === "rejected") {
+    return {
+      label: "谨慎再试",
+      description: "可以重新靠近，但开场要更轻，别一下子贴太近。",
+      className: "border-stone-300 bg-stone-100 text-stone-800",
+    };
+  }
+
+  if (candidate.relationshipScore >= 35) {
+    return {
+      label: "正在观察",
+      description: "还没有真正熟起来，但已经不是完全陌生。",
+      className: "border-violet-200 bg-violet-50 text-violet-800",
+    };
+  }
+
+  return {
+    label: "初次打量",
+    description: "更像远远看着你，适合先用轻一点的话题接近。",
+    className: "border-gray-200 bg-gray-50 text-gray-700",
+  };
+}
+
+export function getCurrentSocialEmotionVisual(
+  petId: number,
+  conversation: SocialConversation | null,
+  latestReply: SocialReplyPayload | null
+): SocialEmotionVisual | null {
+  if (latestReply) {
+    return getSocialEmotionVisual(latestReply.emotion);
+  }
+
+  if (!conversation) {
+    return null;
+  }
+
+  for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
+    const message = conversation.messages[index];
+    if (message.senderPetId !== petId) {
+      return getSocialEmotionVisual(message.emotion);
+    }
+  }
+
+  return null;
+}
+
+export function getSocialPresenceSummary(
+  candidate: SocialCandidate | null,
+  emotionVisual: SocialEmotionVisual | null
+) {
+  if (emotionVisual?.key === "warm") {
+    return {
+      title: "现在明显愿意靠近",
+      description: "适合顺着它刚刚给出的动作继续接话，不用把话题拉得太远。",
+    };
+  }
+
+  if (emotionVisual?.key === "excited") {
+    return {
+      title: "现在进入兴奋状态",
+      description: "对方已经被带动起来了，继续接住它的节奏会显得更像真实互动。",
+    };
+  }
+
+  if (emotionVisual?.key === "curious") {
+    return {
+      title: "现在更像在观察你",
+      description: "适合继续给一点具体线索，让它有东西可闻、可看、可试探。",
+    };
+  }
+
+  if (emotionVisual?.key === "guarded") {
+    return {
+      title: "现在还保留距离感",
+      description: "别连续追问，给它一点缓冲，下一句用更轻的语气会更自然。",
+    };
+  }
+
+  if (emotionVisual?.key === "calm") {
+    return {
+      title: "现在节奏比较平稳",
+      description: "不用急着制造高潮，慢慢聊日常，反而更像真实宠物相处。",
+    };
+  }
+
+  if (!candidate) {
+    return {
+      title: "先选择一个对象",
+      description: "选中目标后，这里会根据最近互动判断对方现在更像靠近、观察还是戒备。",
+    };
+  }
+
+  const presenceTone = getSocialCandidatePresenceTone(candidate);
+  return {
+    title: presenceTone.label,
+    description: presenceTone.description,
+  };
+}
 
 function getSocialCandidatePriority(candidate: SocialCandidate) {
   const state = getSocialCandidateState(candidate);
@@ -329,7 +577,12 @@ const isSocialCandidate = (value: unknown): value is SocialCandidate => {
     (typeof candidate.conversationId === "number" ||
       candidate.conversationId === null) &&
     typeof candidate.canRequest === "boolean" &&
-    typeof candidate.canChat === "boolean"
+    typeof candidate.canChat === "boolean" &&
+    typeof candidate.relationshipScore === "number" &&
+    typeof candidate.relationshipSummary === "string" &&
+    typeof candidate.memorySummary === "string" &&
+    Array.isArray(candidate.recentTopics) &&
+    candidate.recentTopics.every((topic) => typeof topic === "string")
   );
 };
 
@@ -348,6 +601,11 @@ const isFriendship = (value: unknown): value is Friendship => {
       friendship.conversationId === null) &&
     (typeof friendship.lastMessagePreview === "string" ||
       friendship.lastMessagePreview === null) &&
+    typeof friendship.relationshipScore === "number" &&
+    typeof friendship.relationshipSummary === "string" &&
+    typeof friendship.memorySummary === "string" &&
+    Array.isArray(friendship.recentTopics) &&
+    friendship.recentTopics.every((topic) => typeof topic === "string") &&
     typeof friendship.createdAt === "string" &&
     (typeof friendship.acceptedAt === "string" ||
       friendship.acceptedAt === null)
@@ -398,6 +656,8 @@ const isSocialMessage = (value: unknown): value is SocialMessage => {
     typeof message.conversationId === "number" &&
     typeof message.senderPetId === "number" &&
     typeof message.content === "string" &&
+    (typeof message.emotion === "string" || message.emotion === null) &&
+    (typeof message.action === "string" || message.action === null) &&
     typeof message.createdAt === "string"
   );
 };
@@ -413,6 +673,19 @@ const isSocialConversation = (value: unknown): value is SocialConversation => {
     isApiPet(conversation.withPet) &&
     Array.isArray(conversation.messages) &&
     conversation.messages.every(isSocialMessage)
+  );
+};
+
+const isSocialReplyPayload = (value: unknown): value is SocialReplyPayload => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const reply = value as Record<string, unknown>;
+  return (
+    typeof reply.emotion === "string" &&
+    typeof reply.action === "string" &&
+    typeof reply.text === "string"
   );
 };
 
@@ -501,6 +774,7 @@ export const isSocialSendResponse = (
     isSocialTask(response.task) &&
     isSocialMessage(response.sentMessage) &&
     isSocialMessage(response.replyMessage) &&
+    isSocialReplyPayload(response.reply) &&
     typeof response.conversationId === "number" &&
     isApiPet(response.targetPet)
   );

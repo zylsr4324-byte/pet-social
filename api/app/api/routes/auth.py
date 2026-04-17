@@ -8,9 +8,12 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import AuthSession, FurnitureTemplate, User, UserFurnitureInventory
 from app.schemas import (
+    AuthLoginRequest,
     AuthLoginResponse,
     AuthLogoutResponse,
     AuthMeResponse,
+    AuthRegisterRequest,
+    AuthRegisterResponse,
     AuthSecondMeCallbackRequest,
 )
 from app.services.auth import (
@@ -24,6 +27,8 @@ from app.services.auth import (
     get_current_auth_session,
     get_current_user,
     hash_password,
+    validate_email,
+    verify_password,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -48,19 +53,80 @@ def grant_default_inventory(db: Session, user_id: int) -> None:
     )
 
 
-@router.post("/register")
-def register_user() -> None:
-    raise HTTPException(
-        status_code=status.HTTP_410_GONE,
-        detail="Local registration has been removed. Please continue with SecondMe.",
+@router.post(
+    "/register",
+    response_model=AuthRegisterResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_user(
+    payload: AuthRegisterRequest, db: Session = Depends(get_db)
+) -> AuthRegisterResponse:
+    email = validate_email(payload.email)
+    existing_user = db.query(User).filter(User.email == email).first()
+
+    if existing_user is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This email is already registered. Please sign in instead.",
+        )
+
+    user = User(
+        email=email,
+        password_hash=hash_password(payload.password),
+    )
+
+    try:
+        db.add(user)
+        db.flush()
+        grant_default_inventory(db, user.id)
+        db.commit()
+        db.refresh(user)
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Registration failed. Please try again later.",
+        ) from error
+
+    return AuthRegisterResponse(
+        message="Registration successful. You can sign in now.",
+        user=build_user_response(user),
     )
 
 
-@router.post("/login")
-def login_user() -> None:
-    raise HTTPException(
-        status_code=status.HTTP_410_GONE,
-        detail="Local email login has been removed. Please continue with SecondMe.",
+@router.post("/login", response_model=AuthLoginResponse)
+def login_user(
+    payload: AuthLoginRequest, db: Session = Depends(get_db)
+) -> AuthLoginResponse:
+    email = validate_email(payload.email)
+    user = db.query(User).filter(User.email == email).first()
+
+    if user is None or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email or password is incorrect.",
+        )
+
+    auth_session = AuthSession(
+        user_id=user.id,
+        token=build_auth_token(),
+    )
+
+    try:
+        db.add(auth_session)
+        db.commit()
+        db.refresh(auth_session)
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Login failed. Please try again later.",
+        ) from error
+
+    return AuthLoginResponse(
+        message="Login successful.",
+        token=auth_session.token,
+        user=build_user_response(user),
     )
 
 

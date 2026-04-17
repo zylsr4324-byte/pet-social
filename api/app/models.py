@@ -23,6 +23,10 @@ class Pet(Base):
             "mood IN ('happy', 'normal', 'sad', 'uncomfortable')",
             name="check_pet_mood",
         ),
+        CheckConstraint(
+            "social_emotion IS NULL OR social_emotion IN ('calm', 'curious', 'guarded', 'excited', 'warm')",
+            name="check_pet_social_emotion",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -41,6 +45,15 @@ class Pet(Base):
     energy: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     cleanliness: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     mood: Mapped[str] = mapped_column(String(20), nullable=False, default="normal")
+    social_emotion: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, default=None
+    )
+    social_action: Mapped[str | None] = mapped_column(
+        String(120), nullable=True, default=None
+    )
+    social_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_fed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -213,6 +226,8 @@ class PetSocialMessage(Base):
         ForeignKey("pets.id"), nullable=False, index=True
     )
     content: Mapped[str] = mapped_column(String(500), nullable=False)
+    emotion: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    action: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

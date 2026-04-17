@@ -16,6 +16,7 @@ import {
   getPetStatusEmptyState,
   type PetStatusViewState,
 } from "./pet-status-view";
+import { ui } from "./ui";
 
 export type PetStatus = {
   fullness: number;
@@ -24,6 +25,9 @@ export type PetStatus = {
   energy: number;
   cleanliness: number;
   mood: string;
+  socialEmotion: string | null;
+  socialAction: string | null;
+  socialUpdatedAt: string | null;
 };
 
 type PetStatusPanelProps = {
@@ -108,7 +112,10 @@ export function isPetStatus(value: unknown): value is PetStatus {
     typeof status.affection === "number" &&
     typeof status.energy === "number" &&
     typeof status.cleanliness === "number" &&
-    typeof status.mood === "string"
+    typeof status.mood === "string" &&
+    (typeof status.socialEmotion === "string" || status.socialEmotion === null) &&
+    (typeof status.socialAction === "string" || status.socialAction === null) &&
+    (typeof status.socialUpdatedAt === "string" || status.socialUpdatedAt === null)
   );
 }
 
@@ -201,7 +208,7 @@ export function PetStatusPanel({
     const emptyState = getPetStatusEmptyState(statusViewState);
 
     return (
-      <div className="rounded-2xl border border-gray-200 bg-gray-50 p-6">
+      <div className={`${ui.cardSoft} p-6`}>
         <p className="text-sm font-medium text-gray-700">{emptyState.title}</p>
         <p className="mt-2 text-sm leading-6 text-gray-500">
           {emptyState.description}
@@ -213,7 +220,7 @@ export function PetStatusPanel({
   const moodInfo = MOOD_LABELS[status.mood] || MOOD_LABELS.normal;
 
   return (
-    <div className="rounded-2xl border border-orange-100 bg-white p-6 shadow-sm">
+    <div className={`${ui.card} p-6`}>
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900">宠物状态</h3>
         <span
@@ -241,7 +248,7 @@ export function PetStatusPanel({
             key={action.endpoint}
             onClick={() => void handleAction(action.endpoint, action.label)}
             disabled={isActing}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-100 px-4 py-2.5 text-sm font-medium text-amber-800 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className={`${ui.buttonSecondary} gap-1.5 px-4 py-2.5`}
           >
             <span>{action.icon}</span>
             <span>{action.label}</span>

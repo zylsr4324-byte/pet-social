@@ -38,6 +38,9 @@ function createStatus(overrides: Partial<PetStatus> = {}): PetStatus {
     energy: 80,
     cleanliness: 80,
     mood: "normal",
+    socialEmotion: null,
+    socialAction: null,
+    socialUpdatedAt: null,
     ...overrides,
   };
 }
@@ -95,6 +98,37 @@ runTest("getHomeSceneBehavior uses room context for grooming, play, and social",
   assert.equal(social.target, null);
   assert.equal(wandering.state, "wandering");
   assert.equal(wandering.target, null);
+});
+
+runTest("getHomeSceneBehavior adapts social behavior to recent social emotion", () => {
+  const guarded = getHomeSceneBehavior(createStatus(), {
+    hasOtherPets: true,
+    socialEmotion: "guarded",
+  });
+  const warm = getHomeSceneBehavior(createStatus(), {
+    hasOtherPets: true,
+    socialEmotion: "warm",
+  });
+  const excited = getHomeSceneBehavior(createStatus(), {
+    hasOtherPets: true,
+    socialEmotion: "excited",
+  });
+
+  assert.equal(guarded.state, "wandering");
+  assert.equal(
+    guarded.summary,
+    "Guarded social：宠物会先在附近观察，不会立刻贴近同伴"
+  );
+  assert.equal(warm.state, "social");
+  assert.equal(
+    warm.summary,
+    "Warm social：宠物会靠近同伴，并触发更柔和的互动动作"
+  );
+  assert.equal(excited.state, "social");
+  assert.equal(
+    excited.summary,
+    "Excited social：宠物会主动靠近同伴，并触发更外放的问候动作"
+  );
 });
 
 runTest("HOME_SCENE_OBJECTS separates instant actions from target points", () => {
