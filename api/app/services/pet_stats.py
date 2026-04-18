@@ -45,6 +45,23 @@ EXTROVERTED_PERSONALITY_KEYWORDS = (
     "curious",
     "social",
 )
+CURIOUS_PERSONALITY_KEYWORDS = (
+    "\u597d\u5947",
+    "curious",
+)
+SOCIAL_INTENT_LOW_ENERGY_THRESHOLD = 30
+SOCIAL_INTENT_LOW_FULLNESS_THRESHOLD = 30
+SOCIAL_INTENT_LOW_HYDRATION_THRESHOLD = 25
+SOCIAL_INTENT_LOW_CLEANLINESS_THRESHOLD = 30
+SOCIAL_INTENT_HIGH_ENERGY_THRESHOLD = 65
+SOCIAL_INTENT_HIGH_AFFECTION_THRESHOLD = 65
+SOCIAL_INTENT_LOW_AFFECTION_THRESHOLD = 40
+SOCIAL_INTENT_REST_HYDRATION_THRESHOLD = 40
+SOCIAL_INTENT_SOCIAL_WINDOW_HOURS = 12
+SOCIAL_INTENT_LONG_SOCIAL_WINDOW_HOURS = 24
+SOCIAL_INTENT_ACTIVE_SOCIAL_DRIVE_THRESHOLD = 60
+SOCIAL_INTENT_ACTIVE_CURIOSITY_DRIVE_THRESHOLD = 50
+SOCIAL_INTENT_OBSERVE_THRESHOLD = 40
 
 
 def project_current_stats(pet: Pet) -> dict:
@@ -121,33 +138,147 @@ def _contains_personality_keyword(personality: str, keywords: tuple[str, ...]) -
     return any(keyword in personality for keyword in keywords)
 
 
+def _coerce_recent_hours_since_social(pet: Pet) -> float | None:
+    timestamp = getattr(pet, "last_interaction_at", None)
+    if not isinstance(timestamp, datetime):
+        return None
+
+    normalized_timestamp = (
+        timestamp.replace(tzinfo=timezone.utc)
+        if timestamp.tzinfo is None
+        else timestamp.astimezone(timezone.utc)
+    )
+    return (datetime.now(timezone.utc) - normalized_timestamp).total_seconds() / 3600
+
+
+def _has_recent_social_gap(pet: Pet, *, hours: int) -> bool:
+    elapsed_hours = _coerce_recent_hours_since_social(pet)
+    if elapsed_hours is None:
+        return False
+    return elapsed_hours >= hours
+
+
 def evaluate_social_intent(pet: Pet) -> str:
     """Return a social intent label derived from the pet's current state."""
     stats = _get_current_social_intent_stats(pet)
 
-    if stats["energy"] < 30 or stats["fullness"] < 30:
+    if (
+        stats["energy"] < SOCIAL_INTENT_LOW_ENERGY_THRESHOLD
+        or stats["fullness"] < SOCIAL_INTENT_LOW_FULLNESS_THRESHOLD
+        or stats["hydration"] < SOCIAL_INTENT_LOW_HYDRATION_THRESHOLD
+    ):
         return "ignore_social_and_rest"
 
-    if stats["cleanliness"] < 30:
+    if stats["cleanliness"] < SOCIAL_INTENT_LOW_CLEANLINESS_THRESHOLD:
         return "groom_self"
-
-    if stats["affection"] < 40 and stats["energy"] > 60:
-        return "seek_playmate"
 
     personality = getattr(pet, "personality", "")
     normalized_personality = (
         personality.strip().lower() if isinstance(personality, str) else ""
     )
+    is_introverted = _contains_personality_keyword(
+        normalized_personality,
+        INTROVERTED_PERSONALITY_KEYWORDS,
+    )
+    is_extroverted = _contains_personality_keyword(
+        normalized_personality,
+        EXTROVERTED_PERSONALITY_KEYWORDS,
+    )
+
+    social_drive = 0
+    curiosity_drive = 0
+    rest_drive = (
+        max(0, 100 - stats["energy"])
+        + max(0, 45 - stats["fullness"])
+        + max(0, SOCIAL_INTENT_REST_HYDRATION_THRESHOLD - stats["hydration"]) // 2
+    )
+
+    if stats["energy"] >= SOCIAL_INTENT_HIGH_ENERGY_THRESHOLD:
+        social_drive += 25
+        curiosity_drive += 20
+    if stats["energy"] >= 80:
+        social_drive += 8
+        curiosity_drive += 8
+
+    if stats["affection"] <= SOCIAL_INTENT_LOW_AFFECTION_THRESHOLD:
+        social_drive += 25
+    elif stats["affection"] >= SOCIAL_INTENT_HIGH_AFFECTION_THRESHOLD:
+        social_drive += 12
+    else:
+        curiosity_drive += 10
+
+    if is_extroverted:
+        social_drive += 6
+        curiosity_drive += 16
+
+    if is_introverted:
+        social_drive -= 12
+        curiosity_drive -= 12
+        rest_drive += 8
 
     if _contains_personality_keyword(
-        normalized_personality, INTROVERTED_PERSONALITY_KEYWORDS
+        normalized_personality,
+        CURIOUS_PERSONALITY_KEYWORDS,
+    ):
+        curiosity_drive += 10
+
+    if _has_recent_social_gap(pet, hours=SOCIAL_INTENT_SOCIAL_WINDOW_HOURS):
+        social_drive += 12
+
+    if _has_recent_social_gap(pet, hours=SOCIAL_INTENT_LONG_SOCIAL_WINDOW_HOURS):
+        curiosity_drive += 4
+
+    if (
+        stats["energy"] >= SOCIAL_INTENT_HIGH_ENERGY_THRESHOLD
+        and stats["affection"] >= SOCIAL_INTENT_HIGH_AFFECTION_THRESHOLD
+    ):
+        social_drive += 8
+
+    if (
+        stats["affection"] <= SOCIAL_INTENT_LOW_AFFECTION_THRESHOLD
+        and stats["energy"] >= SOCIAL_INTENT_HIGH_ENERGY_THRESHOLD
+    ):
+        social_drive += 10
+
+    if (
+        stats["affection"] <= SOCIAL_INTENT_LOW_AFFECTION_THRESHOLD
+        and stats["energy"] >= SOCIAL_INTENT_HIGH_ENERGY_THRESHOLD
+    ):
+        return "seek_playmate"
+
+    if (
+        is_introverted
+        and not is_extroverted
+        and curiosity_drive < SOCIAL_INTENT_ACTIVE_CURIOSITY_DRIVE_THRESHOLD
+        and not _has_recent_social_gap(pet, hours=SOCIAL_INTENT_SOCIAL_WINDOW_HOURS)
     ):
         return "observe_silently"
 
-    if _contains_personality_keyword(
-        normalized_personality, EXTROVERTED_PERSONALITY_KEYWORDS
+    if (
+        _has_recent_social_gap(pet, hours=SOCIAL_INTENT_SOCIAL_WINDOW_HOURS)
+        and stats["energy"] >= SOCIAL_INTENT_HIGH_ENERGY_THRESHOLD
+        and stats["affection"] >= SOCIAL_INTENT_HIGH_AFFECTION_THRESHOLD
+        and social_drive >= curiosity_drive
     ):
+        return "seek_playmate"
+
+    if is_extroverted and curiosity_drive >= SOCIAL_INTENT_OBSERVE_THRESHOLD:
         return "explore_around"
+
+    if curiosity_drive >= SOCIAL_INTENT_ACTIVE_CURIOSITY_DRIVE_THRESHOLD:
+        return "explore_around"
+
+    if social_drive >= SOCIAL_INTENT_ACTIVE_SOCIAL_DRIVE_THRESHOLD:
+        return "seek_playmate"
+
+    if rest_drive >= social_drive and rest_drive >= SOCIAL_INTENT_OBSERVE_THRESHOLD:
+        return "observe_silently"
+
+    if curiosity_drive >= SOCIAL_INTENT_OBSERVE_THRESHOLD:
+        return "explore_around"
+
+    if social_drive >= SOCIAL_INTENT_OBSERVE_THRESHOLD:
+        return "seek_playmate"
 
     return "observe_silently"
 

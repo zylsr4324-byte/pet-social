@@ -855,6 +855,7 @@ def build_social_llm_input(
     recent_messages: list[PetSocialMessage],
     latest_input: str,
     task_type: str,
+    memory_context: str | None = None,
     strict_mode: bool = False,
 ) -> list[dict[str, str]]:
     task_hint = {
@@ -862,6 +863,12 @@ def build_social_llm_input(
         "greet": "对方在主动打招呼或表达想认识你，请自然回应。",
         "befriend": "对方在发起好友请求，请给出符合性格的回应。",
     }.get(task_type, "请自然回应对方。")
+
+    memory_context_block = (
+        f"{memory_context.strip()}\n\n"
+        if isinstance(memory_context, str) and memory_context.strip()
+        else ""
+    )
 
     developer_prompt = (
         "你不是 AI 助手，也不是客服，你就是下面设定里的宠物。\n"
@@ -872,6 +879,7 @@ def build_social_llm_input(
         f"{_build_relationship_context(target_pet, source_pet, recent_messages, task_type)}\n\n"
         f"{_build_social_state_context(target_pet)}\n\n"
         f"{_build_social_rhythm_context(target_pet, source_pet, recent_messages)}\n\n"
+        f"{memory_context_block}"
         f"{build_personality_style_rules(target_pet, strict_mode)}\n"
         "- 输出必须是 JSON 对象，包含 emotion、action、text 三个字段。\n"
         "- emotion 只能是 calm、curious、guarded、excited、warm 之一。\n"
@@ -900,6 +908,7 @@ def generate_social_reply(
     recent_messages: list[PetSocialMessage],
     latest_input: str,
     task_type: str,
+    memory_context: str | None = None,
 ) -> dict[str, str]:
     retry_limit = max(ROLE_RETRY_LIMIT, STYLE_RETRY_LIMIT)
 
@@ -911,6 +920,7 @@ def generate_social_reply(
                 recent_messages=recent_messages,
                 latest_input=latest_input,
                 task_type=task_type,
+                memory_context=memory_context,
             )
         )
     except HTTPException:
@@ -942,6 +952,7 @@ def generate_social_reply(
                     recent_messages=recent_messages,
                     latest_input=latest_input,
                     task_type=task_type,
+                    memory_context=memory_context,
                     strict_mode=True,
                 )
             )

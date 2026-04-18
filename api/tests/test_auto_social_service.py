@@ -75,6 +75,8 @@ def build_stub_modules() -> dict[str, types.ModuleType]:
 
     app_database_module = types.ModuleType("app.database")
     app_database_module.SessionLocal = lambda: None
+    llm_client_module = types.ModuleType("app.services.llm_client")
+    llm_client_module.request_llm_reply = lambda messages: "{}"
 
     app_models_module = types.ModuleType("app.models")
 
@@ -89,9 +91,17 @@ def build_stub_modules() -> dict[str, types.ModuleType]:
     class PetTask(StubEntity):
         pass
 
+    class PetFriendship(StubEntity):
+        pass
+
+    class PetConversation(StubEntity):
+        pass
+
     app_models_module.Pet = Pet
     app_models_module.PetDailyQuota = PetDailyQuota
     app_models_module.PetTask = PetTask
+    app_models_module.PetFriendship = PetFriendship
+    app_models_module.PetConversation = PetConversation
 
     pet_social_module = types.ModuleType("app.services.pet_social")
     pet_social_module.DAILY_SOCIAL_INITIATION_LIMIT = 5
@@ -99,9 +109,20 @@ def build_stub_modules() -> dict[str, types.ModuleType]:
     pet_social_module.complete_social_task = lambda task, output_text: task
     pet_social_module.create_social_message = lambda *args, **kwargs: None
     pet_social_module.create_social_task = lambda *args, **kwargs: StubEntity()
+    pet_social_module.estimate_relationship_score = lambda *args, **kwargs: 15
+    pet_social_module.generate_social_reply = (
+        lambda *args, **kwargs: {
+            "emotion": "calm",
+            "action": "rest",
+            "text": "",
+        }
+    )
+    pet_social_module.get_conversation_between = lambda *args, **kwargs: None
+    pet_social_module.get_friendship_between = lambda *args, **kwargs: None
     pet_social_module.get_or_create_conversation = (
         lambda *args, **kwargs: StubEntity(id=1)
     )
+    pet_social_module.read_recent_social_messages = lambda *args, **kwargs: []
 
     pet_stats_module = types.ModuleType("app.services.pet_stats")
     pet_stats_module.apply_decay_and_save = lambda pet, db: {}
@@ -113,6 +134,7 @@ def build_stub_modules() -> dict[str, types.ModuleType]:
         "app.database": app_database_module,
         "app.models": app_models_module,
         "app.services": app_services_module,
+        "app.services.llm_client": llm_client_module,
         "app.services.pet_social": pet_social_module,
         "app.services.pet_stats": pet_stats_module,
     }
@@ -199,8 +221,11 @@ class AutoSocialServiceTests(unittest.TestCase):
         self.assertIn("- ID 2: Bean (dog)", prompt)
         self.assertIn("- ID 3: Pudding (cat)", prompt)
         self.assertIn("- 广场边传来一阵兴奋的叫声。", prompt)
+        self.assertIn('"action_type": "approach"', prompt)
         self.assertIn('"target_pet_id": null', prompt)
-        self.assertIn('"action": "action_name"', prompt)
+        self.assertIn('"reason": "why this action feels right right now"', prompt)
+        self.assertIn('"should_continue": true', prompt)
+        self.assertIn('"metadata": {', prompt)
         self.assertIn('"internal_thought": "why this action feels right right now"', prompt)
         self.assertIn("不要输出 Markdown", prompt)
 
@@ -273,7 +298,7 @@ class AutoSocialServiceTests(unittest.TestCase):
             action="rest",
         )
 
-    def test_social_intent_records_initiator_action_without_forced_reply(self):
+    def test_social_intent_records_initiator_action_and_completes_when_follow_up_stops(self):
         db = MagicMock()
         source_pet = build_pet(id=1, pet_name="Mochi")
         target_pet = build_pet(id=2, pet_name="Bean", personality="playful")
@@ -358,9 +383,12 @@ class AutoSocialServiceTests(unittest.TestCase):
             emotion="curious",
             action="sniff_target",
         )
-        complete_task.assert_called_once_with(
-            task,
-            "Recorded initiator action 'sniff_target'. Waiting for target pet heartbeat.",
+        complete_task.assert_called_once()
+        completion_text = complete_task.call_args.args[1]
+        self.assertIn("Auto social exchange completed:", completion_text)
+        self.assertIn(
+            "Mochi[action=sniff_target, emotion=curious]: Mochi sniffs Bean from a careful distance.",
+            completion_text,
         )
         apply_presence.assert_called_once_with(
             source_pet,
@@ -443,9 +471,10 @@ class AutoSocialServiceTests(unittest.TestCase):
         create_message.assert_called_once()
         self.assertEqual(create_message.call_args.args[3], "Mochi perks up and invites Bean to play.")
         create_task.assert_called_once()
-        complete_task.assert_called_once_with(
-            task,
-            "Recorded initiator action 'seek_playmate'. Waiting for target pet heartbeat.",
+        complete_task.assert_called_once()
+        self.assertIn(
+            "Mochi[action=seek_playmate, emotion=excited]: Mochi perks up and invites Bean to play.",
+            complete_task.call_args.args[1],
         )
 
     def test_social_intent_with_missing_action_field_falls_back_safely(self):
@@ -602,7 +631,144 @@ class AutoSocialServiceTests(unittest.TestCase):
             "Mochi perks up and invites Bean to play.",
         )
 
-    def test_social_intent_task_is_completed_immediately_after_initiator_action(self):
+    def test_request_autonomous_action_calls_existing_llm_and_parses_json(self):
+        llm_context = self.auto_social._build_auto_social_llm_context(
+            source_pet=build_pet(id=1, pet_name="Mochi"),
+            intent="seek_playmate",
+            nearby_pets=[build_pet(id=2, pet_name="Bean")],
+            recent_events=["Bean just looked around."],
+        )
+
+        with patch.object(
+            self.auto_social,
+            "request_llm_reply",
+            return_value=(
+                '{"action_type":"approach","text":"Mochi pads toward Bean.",'
+                '"target_pet_id":2,"reason":"Bean seems approachable.",'
+                '"should_continue":true,"emotion":"friendly",'
+                '"metadata":{"body_language":"slow steps",'
+                '"vocalization":"soft chirp",'
+                '"internal_thought":"I want to say hello."}}'
+            ),
+        ) as request_llm_reply:
+            action = self.auto_social._request_autonomous_action(llm_context)
+
+        request_llm_reply.assert_called_once()
+        input_messages = request_llm_reply.call_args.args[0]
+        self.assertEqual(input_messages[0]["role"], "developer")
+        self.assertEqual(input_messages[0]["content"], llm_context["system_prompt"])
+        self.assertEqual(action["action"], "approach")
+        self.assertEqual(action["action_type"], "approach")
+        self.assertEqual(action["target_pet_id"], 2)
+        self.assertEqual(action["reason"], "Bean seems approachable.")
+        self.assertTrue(action["should_continue"])
+        self.assertEqual(action["emotion"], "friendly")
+        self.assertEqual(action["body_language"], "slow steps")
+        self.assertEqual(action["vocalization"], "soft chirp")
+        self.assertEqual(action["internal_thought"], "I want to say hello.")
+
+    def test_request_autonomous_action_accepts_legacy_json_shape(self):
+        llm_context = self.auto_social._build_auto_social_llm_context(
+            source_pet=build_pet(id=1, pet_name="Mochi"),
+            intent="seek_playmate",
+            nearby_pets=[build_pet(id=2, pet_name="Bean")],
+            recent_events=[],
+        )
+
+        with patch.object(
+            self.auto_social,
+            "request_llm_reply",
+            return_value=(
+                '{"action":"seek_playmate","text":"Hi Bean!",'
+                '"target_pet_id":2,"emotion":"friendly",'
+                '"body_language":"tail wag","vocalization":"chirp",'
+                '"internal_thought":"I want to play"}'
+            ),
+        ):
+            action = self.auto_social._request_autonomous_action(llm_context)
+
+        self.assertEqual(action["action"], "seek_playmate")
+        self.assertEqual(action["action_type"], "seek_playmate")
+        self.assertEqual(action["target_pet_id"], 2)
+        self.assertEqual(action["emotion"], "friendly")
+        self.assertEqual(action["body_language"], "tail wag")
+        self.assertEqual(action["vocalization"], "chirp")
+        self.assertEqual(action["internal_thought"], "I want to play")
+        self.assertEqual(action["reason"], "I want to play")
+
+    def test_request_autonomous_action_uses_placeholder_when_llm_raises(self):
+        llm_context = self.auto_social._build_auto_social_llm_context(
+            source_pet=build_pet(id=1, pet_name="Mochi"),
+            intent="seek_playmate",
+            nearby_pets=[build_pet(id=2, pet_name="Bean")],
+            recent_events=[],
+        )
+
+        with patch.object(
+            self.auto_social,
+            "request_llm_reply",
+            side_effect=RuntimeError("offline"),
+        ):
+            action = self.auto_social._request_autonomous_action(llm_context)
+
+        self.assertEqual(action["action"], "seek_playmate")
+        self.assertEqual(action["target_pet_id"], 2)
+
+    def test_request_autonomous_action_uses_placeholder_when_llm_payload_is_invalid(self):
+        llm_context = self.auto_social._build_auto_social_llm_context(
+            source_pet=build_pet(id=1, pet_name="Mochi"),
+            intent="observe_silently",
+            nearby_pets=[build_pet(id=2, pet_name="Bean")],
+            recent_events=[],
+        )
+
+        with patch.object(
+            self.auto_social,
+            "request_llm_reply",
+            return_value='{"text":"just watching"}',
+        ):
+            action = self.auto_social._request_autonomous_action(llm_context)
+
+        self.assertEqual(action["action"], "observe_silently")
+        self.assertEqual(action["target_pet_id"], 2)
+
+    def test_normalize_autonomous_action_decision_maps_new_json_shape_to_existing_fields(self):
+        nearby_pet = build_pet(id=2, pet_name="Bean")
+        llm_context = self.auto_social._build_auto_social_llm_context(
+            source_pet=build_pet(id=1, pet_name="Mochi"),
+            intent="seek_playmate",
+            nearby_pets=[nearby_pet],
+            recent_events=[],
+        )
+
+        normalized = self.auto_social._normalize_autonomous_action_decision(
+            {
+                "action_type": "speak",
+                "text": "Hi Bean!",
+                "target_pet_id": "2",
+                "reason": "I want to start a friendly interaction.",
+                "should_continue": "true",
+                "emotion": "Friendly",
+                "metadata": {
+                    "body_language": "tail up",
+                    "vocalization": "soft chirp",
+                    "internal_thought": "This feels safe.",
+                },
+            },
+            llm_context,
+        )
+
+        self.assertEqual(normalized["action"], "speak")
+        self.assertEqual(normalized["action_type"], "speak")
+        self.assertEqual(normalized["target_pet_id"], 2)
+        self.assertEqual(normalized["reason"], "I want to start a friendly interaction.")
+        self.assertTrue(normalized["should_continue"])
+        self.assertEqual(normalized["emotion"], "friendly")
+        self.assertEqual(normalized["body_language"], "tail up")
+        self.assertEqual(normalized["vocalization"], "soft chirp")
+        self.assertEqual(normalized["internal_thought"], "This feels safe.")
+
+    def test_social_intent_task_is_completed_after_multi_turn_attempts(self):
         db = MagicMock()
         source_pet = build_pet(id=1, pet_name="Mochi")
         target_pet = build_pet(id=2, pet_name="Bean")
@@ -648,6 +814,19 @@ class AutoSocialServiceTests(unittest.TestCase):
             return_value=conversation,
         ), patch.object(
             self.auto_social,
+            "read_recent_social_messages",
+            return_value=[SimpleNamespace(sender_pet_id=1, content="Mochi sniffs Bean from a careful distance.")],
+        ), patch.object(
+            self.auto_social,
+            "generate_social_reply",
+            return_value={
+                "emotion": "warm",
+                "action": "reply",
+                "text": "Bean leans closer and says hi back.",
+                "should_continue": False,
+            },
+        ), patch.object(
+            self.auto_social,
             "create_social_message",
             side_effect=record_message,
         ), patch.object(
@@ -662,7 +841,533 @@ class AutoSocialServiceTests(unittest.TestCase):
             result = self.auto_social._do_auto_social_round(db, source_pet)
 
         self.assertTrue(result)
-        self.assertEqual(call_order, ["message", "task", "complete"])
+        self.assertEqual(call_order, ["message", "task", "message", "complete"])
+
+    def test_auto_social_can_continue_for_multiple_turns(self):
+        db = MagicMock()
+        source_pet = build_pet(id=1, pet_name="Mochi")
+        target_pet = build_pet(id=2, pet_name="Bean")
+        task = SimpleNamespace(id=17)
+        conversation = SimpleNamespace(id=44)
+        created_messages: list[tuple[object, ...]] = []
+        recent_messages = [
+            SimpleNamespace(sender_pet_id=1, content="Mochi says hello."),
+            SimpleNamespace(sender_pet_id=2, content="Bean says hello back."),
+        ]
+
+        with patch.object(
+            self.auto_social,
+            "evaluate_social_intent",
+            return_value="seek_playmate",
+        ), patch.object(
+            self.auto_social,
+            "_find_recently_active_pets",
+            return_value=[target_pet],
+        ), patch.object(
+            self.auto_social,
+            "_request_autonomous_action",
+            return_value={
+                "target_pet_id": target_pet.id,
+                "action": "approach",
+                "emotion": "friendly",
+                "body_language": "step closer",
+                "vocalization": "chirp",
+                "internal_thought": "I want to start chatting.",
+                "text": "Mochi says hello.",
+                "should_continue": True,
+            },
+        ), patch.object(
+            self.auto_social,
+            "get_or_create_conversation",
+            return_value=conversation,
+        ), patch.object(
+            self.auto_social,
+            "create_social_task",
+            return_value=task,
+        ), patch.object(
+            self.auto_social,
+            "read_recent_social_messages",
+            return_value=recent_messages,
+        ), patch.object(
+            self.auto_social,
+            "generate_social_reply",
+            side_effect=[
+                {
+                    "emotion": "warm",
+                    "action": "reply",
+                    "text": "Bean says hello back.",
+                },
+                {
+                    "emotion": "curious",
+                    "action": "follow_up",
+                    "text": "Mochi asks if Bean wants to play.",
+                },
+            ],
+        ), patch.object(
+            self.auto_social,
+            "create_social_message",
+            side_effect=lambda *args, **kwargs: created_messages.append(args),
+        ) as create_message, patch.object(
+            self.auto_social,
+            "complete_social_task",
+        ) as complete_task:
+            result = self.auto_social._do_auto_social_round(db, source_pet)
+
+        self.assertTrue(result)
+        self.assertEqual(create_message.call_count, 3)
+        self.assertEqual(created_messages[0][2], source_pet.id)
+        self.assertEqual(created_messages[1][2], target_pet.id)
+        self.assertEqual(created_messages[2][2], source_pet.id)
+        self.assertIn(
+            "Bean[action=reply, emotion=warm]: Bean says hello back.",
+            complete_task.call_args.args[1],
+        )
+        self.assertIn(
+            "Mochi[action=follow_up, emotion=curious]: Mochi asks if Bean wants to play.",
+            complete_task.call_args.args[1],
+        )
+
+    def test_auto_social_stops_at_max_turns(self):
+        db = MagicMock()
+        source_pet = build_pet(id=1, pet_name="Mochi")
+        target_pet = build_pet(id=2, pet_name="Bean")
+        task = SimpleNamespace(id=18)
+        conversation = SimpleNamespace(id=45)
+
+        with patch.object(
+            self.auto_social,
+            "evaluate_social_intent",
+            return_value="seek_playmate",
+        ), patch.object(
+            self.auto_social,
+            "_find_recently_active_pets",
+            return_value=[target_pet],
+        ), patch.object(
+            self.auto_social,
+            "_request_autonomous_action",
+            return_value={
+                "target_pet_id": target_pet.id,
+                "action": "approach",
+                "emotion": "friendly",
+                "body_language": "step closer",
+                "vocalization": "chirp",
+                "internal_thought": "I want to start chatting.",
+                "text": "Mochi says hello.",
+                "should_continue": True,
+            },
+        ), patch.object(
+            self.auto_social,
+            "get_or_create_conversation",
+            return_value=conversation,
+        ), patch.object(
+            self.auto_social,
+            "create_social_task",
+            return_value=task,
+        ), patch.object(
+            self.auto_social,
+            "read_recent_social_messages",
+            return_value=[SimpleNamespace(sender_pet_id=1, content="Mochi says hello.")],
+        ), patch.object(
+            self.auto_social,
+            "generate_social_reply",
+            side_effect=[
+                {"emotion": "warm", "action": "reply", "text": "Bean replies."},
+                {"emotion": "curious", "action": "follow_up", "text": "Mochi follows up."},
+                {"emotion": "warm", "action": "reply", "text": "Bean would keep talking."},
+            ],
+        ) as generate_reply, patch.object(
+            self.auto_social,
+            "create_social_message",
+        ) as create_message:
+            result = self.auto_social._do_auto_social_round(db, source_pet)
+
+        self.assertTrue(result)
+        self.assertEqual(create_message.call_count, self.auto_social.AUTO_SOCIAL_MAX_TURNS)
+        self.assertEqual(generate_reply.call_count, self.auto_social.AUTO_SOCIAL_MAX_TURNS - 1)
+
+    def test_auto_social_stops_early_when_should_continue_is_false(self):
+        db = MagicMock()
+        source_pet = build_pet(id=1, pet_name="Mochi")
+        target_pet = build_pet(id=2, pet_name="Bean")
+        task = SimpleNamespace(id=19)
+        conversation = SimpleNamespace(id=46)
+
+        with patch.object(
+            self.auto_social,
+            "evaluate_social_intent",
+            return_value="seek_playmate",
+        ), patch.object(
+            self.auto_social,
+            "_find_recently_active_pets",
+            return_value=[target_pet],
+        ), patch.object(
+            self.auto_social,
+            "_request_autonomous_action",
+            return_value={
+                "target_pet_id": target_pet.id,
+                "action": "approach",
+                "emotion": "friendly",
+                "body_language": "step closer",
+                "vocalization": "chirp",
+                "internal_thought": "I want to start chatting.",
+                "text": "Mochi says hello.",
+                "should_continue": False,
+            },
+        ), patch.object(
+            self.auto_social,
+            "get_or_create_conversation",
+            return_value=conversation,
+        ), patch.object(
+            self.auto_social,
+            "create_social_task",
+            return_value=task,
+        ), patch.object(
+            self.auto_social,
+            "generate_social_reply",
+        ) as generate_reply, patch.object(
+            self.auto_social,
+            "create_social_message",
+        ) as create_message:
+            result = self.auto_social._do_auto_social_round(db, source_pet)
+
+        self.assertTrue(result)
+        self.assertEqual(create_message.call_count, 1)
+        generate_reply.assert_not_called()
+
+    def test_auto_social_stops_when_mid_round_reply_is_not_continueable(self):
+        db = MagicMock()
+        source_pet = build_pet(id=1, pet_name="Mochi")
+        target_pet = build_pet(id=2, pet_name="Bean")
+        task = SimpleNamespace(id=20)
+        conversation = SimpleNamespace(id=47)
+
+        with patch.object(
+            self.auto_social,
+            "evaluate_social_intent",
+            return_value="seek_playmate",
+        ), patch.object(
+            self.auto_social,
+            "_find_recently_active_pets",
+            return_value=[target_pet],
+        ), patch.object(
+            self.auto_social,
+            "_request_autonomous_action",
+            return_value={
+                "target_pet_id": target_pet.id,
+                "action": "approach",
+                "emotion": "friendly",
+                "body_language": "step closer",
+                "vocalization": "chirp",
+                "internal_thought": "I want to start chatting.",
+                "text": "Mochi says hello.",
+                "should_continue": True,
+            },
+        ), patch.object(
+            self.auto_social,
+            "get_or_create_conversation",
+            return_value=conversation,
+        ), patch.object(
+            self.auto_social,
+            "create_social_task",
+            return_value=task,
+        ), patch.object(
+            self.auto_social,
+            "read_recent_social_messages",
+            return_value=[SimpleNamespace(sender_pet_id=1, content="Mochi says hello.")],
+        ), patch.object(
+            self.auto_social,
+            "generate_social_reply",
+            return_value={"emotion": "calm", "action": "rest", "text": ""},
+        ), patch.object(
+            self.auto_social,
+            "create_social_message",
+        ) as create_message, patch.object(
+            self.auto_social,
+            "complete_social_task",
+        ) as complete_task:
+            result = self.auto_social._do_auto_social_round(db, source_pet)
+
+        self.assertTrue(result)
+        self.assertEqual(create_message.call_count, 1)
+        self.assertIn(
+            "Mochi[action=approach, emotion=friendly]: Mochi says hello.",
+            complete_task.call_args.args[1],
+        )
+
+    def test_auto_social_reads_updated_recent_messages_for_third_turn(self):
+        db = MagicMock()
+        source_pet = build_pet(id=1, pet_name="Mochi")
+        target_pet = build_pet(id=2, pet_name="Bean")
+        task = SimpleNamespace(id=21)
+        conversation = SimpleNamespace(id=48)
+        stored_messages = [
+            SimpleNamespace(
+                sender_pet_id=source_pet.id,
+                content="Mochi says hello.",
+            )
+        ]
+        seen_recent_message_lengths: list[int] = []
+
+        def read_recent_messages(*args, **kwargs):
+            return list(stored_messages)
+
+        def create_message_side_effect(
+            db_arg,
+            conversation_id,
+            sender_pet_id,
+            content,
+            *,
+            emotion=None,
+            action=None,
+        ):
+            stored_messages.append(
+                SimpleNamespace(
+                    sender_pet_id=sender_pet_id,
+                    content=content,
+                    emotion=emotion,
+                    action=action,
+                )
+            )
+            return None
+
+        def generate_reply_side_effect(
+            *,
+            target_pet,
+            source_pet,
+            recent_messages,
+            latest_input,
+            task_type,
+            memory_context=None,
+        ):
+            seen_recent_message_lengths.append(len(recent_messages))
+            if len(seen_recent_message_lengths) == 1:
+                self.assertEqual(len(recent_messages), 2)
+                self.assertEqual(recent_messages[-1].content, "Mochi says hello.")
+                return {
+                    "emotion": "warm",
+                    "action": "reply",
+                    "text": "Bean says hello back.",
+                }
+            self.assertEqual(len(recent_messages), 3)
+            self.assertEqual(recent_messages[-1].content, "Bean says hello back.")
+            return {
+                "emotion": "curious",
+                "action": "follow_up",
+                "text": "Mochi asks what Bean is doing.",
+                "should_continue": False,
+            }
+
+        with patch.object(
+            self.auto_social,
+            "evaluate_social_intent",
+            return_value="seek_playmate",
+        ), patch.object(
+            self.auto_social,
+            "_find_recently_active_pets",
+            return_value=[target_pet],
+        ), patch.object(
+            self.auto_social,
+            "_request_autonomous_action",
+            return_value={
+                "target_pet_id": target_pet.id,
+                "action": "approach",
+                "emotion": "friendly",
+                "body_language": "step closer",
+                "vocalization": "chirp",
+                "internal_thought": "I want to start chatting.",
+                "text": "Mochi says hello.",
+                "should_continue": True,
+            },
+        ), patch.object(
+            self.auto_social,
+            "get_or_create_conversation",
+            return_value=conversation,
+        ), patch.object(
+            self.auto_social,
+            "create_social_task",
+            return_value=task,
+        ), patch.object(
+            self.auto_social,
+            "read_recent_social_messages",
+            side_effect=read_recent_messages,
+        ), patch.object(
+            self.auto_social,
+            "create_social_message",
+            side_effect=create_message_side_effect,
+        ), patch.object(
+            self.auto_social,
+            "generate_social_reply",
+            side_effect=generate_reply_side_effect,
+        ) as generate_reply:
+            result = self.auto_social._do_auto_social_round(db, source_pet)
+
+        self.assertTrue(result)
+        self.assertEqual(seen_recent_message_lengths, [2, 3])
+        self.assertEqual(generate_reply.call_count, 2)
+
+    def test_auto_social_passes_lightweight_memory_context_into_replies(self):
+        db = MagicMock()
+        source_pet = build_pet(id=1, pet_name="Mochi")
+        target_pet = build_pet(id=2, pet_name="Bean")
+        task = SimpleNamespace(id=22)
+        conversation = SimpleNamespace(id=49)
+        captured_memory_contexts: list[str | None] = []
+
+        def capture_reply_context(**kwargs):
+            captured_memory_contexts.append(kwargs.get("memory_context"))
+            return {
+                "emotion": "warm",
+                "action": "reply",
+                "text": "Bean says hello back.",
+                "should_continue": False,
+            }
+
+        with patch.object(
+            self.auto_social,
+            "evaluate_social_intent",
+            return_value="seek_playmate",
+        ), patch.object(
+            self.auto_social,
+            "_find_recently_active_pets",
+            return_value=[target_pet],
+        ), patch.object(
+            self.auto_social,
+            "_request_autonomous_action",
+            return_value={
+                "target_pet_id": target_pet.id,
+                "action": "approach",
+                "emotion": "friendly",
+                "body_language": "step closer",
+                "vocalization": "chirp",
+                "internal_thought": "I want to start chatting.",
+                "text": "Mochi says hello.",
+                "should_continue": True,
+            },
+        ), patch.object(
+            self.auto_social,
+            "get_or_create_conversation",
+            return_value=conversation,
+        ), patch.object(
+            self.auto_social,
+            "create_social_task",
+            return_value=task,
+        ), patch.object(
+            self.auto_social,
+            "read_recent_social_messages",
+            return_value=[SimpleNamespace(sender_pet_id=1, content="Mochi says hello.")],
+        ), patch.object(
+            self.auto_social,
+            "generate_social_reply",
+            side_effect=capture_reply_context,
+        ):
+            result = self.auto_social._do_auto_social_round(db, source_pet)
+
+        self.assertTrue(result)
+        self.assertEqual(len(captured_memory_contexts), 1)
+        memory_context = captured_memory_contexts[0]
+        self.assertIsInstance(memory_context, str)
+        self.assertIn("本轮由 Mochi 主动发起", memory_context)
+        self.assertIn("当前轮到 Bean 接 Mochi 的话", memory_context)
+        self.assertIn("最新一句是：Mochi says hello.", memory_context)
+        self.assertIn("Mochi 刚刚的状态：action=approach, emotion=friendly", memory_context)
+
+    def test_auto_social_third_turn_gets_richer_memory_context_than_second_turn(self):
+        db = MagicMock()
+        source_pet = build_pet(id=1, pet_name="Mochi")
+        target_pet = build_pet(id=2, pet_name="Bean")
+        task = SimpleNamespace(id=23)
+        conversation = SimpleNamespace(id=50)
+        stored_messages: list[SimpleNamespace] = []
+        seen_memory_contexts: list[str] = []
+
+        def read_recent_messages(*args, **kwargs):
+            return list(stored_messages)
+
+        def create_message_side_effect(
+            db_arg,
+            conversation_id,
+            sender_pet_id,
+            content,
+            *,
+            emotion=None,
+            action=None,
+        ):
+            stored_messages.append(
+                SimpleNamespace(
+                    sender_pet_id=sender_pet_id,
+                    content=content,
+                    emotion=emotion,
+                    action=action,
+                )
+            )
+            return None
+
+        def generate_reply_side_effect(**kwargs):
+            memory_context = kwargs.get("memory_context") or ""
+            seen_memory_contexts.append(memory_context)
+            if len(seen_memory_contexts) == 1:
+                return {
+                    "emotion": "warm",
+                    "action": "reply",
+                    "text": "Bean says hello back.",
+                }
+            return {
+                "emotion": "curious",
+                "action": "follow_up",
+                "text": "Mochi asks what Bean is doing.",
+                "should_continue": False,
+            }
+
+        with patch.object(
+            self.auto_social,
+            "evaluate_social_intent",
+            return_value="seek_playmate",
+        ), patch.object(
+            self.auto_social,
+            "_find_recently_active_pets",
+            return_value=[target_pet],
+        ), patch.object(
+            self.auto_social,
+            "_request_autonomous_action",
+            return_value={
+                "target_pet_id": target_pet.id,
+                "action": "approach",
+                "emotion": "friendly",
+                "body_language": "step closer",
+                "vocalization": "chirp",
+                "internal_thought": "I want to start chatting.",
+                "text": "Mochi says hello.",
+                "should_continue": True,
+            },
+        ), patch.object(
+            self.auto_social,
+            "get_or_create_conversation",
+            return_value=conversation,
+        ), patch.object(
+            self.auto_social,
+            "create_social_task",
+            return_value=task,
+        ), patch.object(
+            self.auto_social,
+            "read_recent_social_messages",
+            side_effect=read_recent_messages,
+        ), patch.object(
+            self.auto_social,
+            "create_social_message",
+            side_effect=create_message_side_effect,
+        ), patch.object(
+            self.auto_social,
+            "generate_social_reply",
+            side_effect=generate_reply_side_effect,
+        ):
+            result = self.auto_social._do_auto_social_round(db, source_pet)
+
+        self.assertTrue(result)
+        self.assertEqual(len(seen_memory_contexts), 2)
+        self.assertIn("最近几句互动：", seen_memory_contexts[0])
+        self.assertIn("Mochi[action=approach, emotion=friendly]: Mochi says hello.", seen_memory_contexts[0])
+        self.assertIn("Bean[action=reply, emotion=warm]: Bean says hello back.", seen_memory_contexts[1])
+        self.assertGreater(len(seen_memory_contexts[1]), len(seen_memory_contexts[0]))
 
     def test_find_recently_active_pets_uses_perception_window_and_limit(self):
         source_pet = build_pet(id=1)
@@ -684,6 +1389,109 @@ class AutoSocialServiceTests(unittest.TestCase):
             if isinstance(condition, tuple) and condition[:2] == ("ge", "stats_updated_at")
         ]
         self.assertEqual(len(active_after_filters), 1)
+
+    def test_rank_auto_social_targets_prefers_more_familiar_candidate(self):
+        db = MagicMock()
+        source_pet = build_pet(id=1, pet_name="Mochi")
+        familiar_pet = build_pet(id=2, pet_name="Bean", energy=75, social_action="wag")
+        stranger_pet = build_pet(id=3, pet_name="Pudding", energy=75)
+        familiar_conversation = SimpleNamespace(id=12)
+
+        def fake_read_recent_messages(db_arg, conversation_id):
+            if conversation_id == familiar_conversation.id:
+                return [SimpleNamespace(sender_pet_id=familiar_pet.id, content="hi again")]
+            return []
+
+        def fake_friendship(db_arg, source_pet_id, candidate_pet_id):
+            if candidate_pet_id == familiar_pet.id:
+                return SimpleNamespace(status="accepted")
+            return None
+
+        def fake_conversation(db_arg, source_pet_id, candidate_pet_id):
+            if candidate_pet_id == familiar_pet.id:
+                return familiar_conversation
+            return None
+
+        def fake_relationship_score(friendship, recent_messages, current_pet_id):
+            if friendship is not None:
+                return 85
+            return 15
+
+        with patch.object(
+            self.auto_social,
+            "get_friendship_between",
+            side_effect=fake_friendship,
+        ), patch.object(
+            self.auto_social,
+            "get_conversation_between",
+            side_effect=fake_conversation,
+        ), patch.object(
+            self.auto_social,
+            "estimate_relationship_score",
+            side_effect=fake_relationship_score,
+        ), patch.object(
+            self.auto_social,
+            "read_recent_social_messages",
+            side_effect=fake_read_recent_messages,
+        ):
+            ranked = self.auto_social._rank_auto_social_targets(
+                db,
+                source_pet=source_pet,
+                nearby_pets=[stranger_pet, familiar_pet],
+                intent="seek_playmate",
+            )
+
+        self.assertEqual([pet.id for pet in ranked], [familiar_pet.id, stranger_pet.id])
+
+    def test_do_auto_social_round_falls_back_to_ranked_target_when_llm_target_is_unavailable(self):
+        db = MagicMock()
+        source_pet = build_pet(id=1, pet_name="Mochi")
+        higher_rank_pet = build_pet(id=2, pet_name="Bean")
+        lower_rank_pet = build_pet(id=3, pet_name="Pudding")
+        task = SimpleNamespace(id=24)
+        conversation = SimpleNamespace(id=51)
+
+        with patch.object(
+            self.auto_social,
+            "evaluate_social_intent",
+            return_value="seek_playmate",
+        ), patch.object(
+            self.auto_social,
+            "_find_recently_active_pets",
+            return_value=[lower_rank_pet, higher_rank_pet],
+        ), patch.object(
+            self.auto_social,
+            "_rank_auto_social_targets",
+            return_value=[higher_rank_pet, lower_rank_pet],
+        ), patch.object(
+            self.auto_social,
+            "_request_autonomous_action",
+            return_value={
+                "target_pet_id": 999,
+                "action": "approach",
+                "emotion": "friendly",
+                "body_language": "step closer",
+                "vocalization": "chirp",
+                "text": "Mochi says hello.",
+                "should_continue": True,
+            },
+        ), patch.object(
+            self.auto_social,
+            "get_or_create_conversation",
+            return_value=conversation,
+        ) as get_conversation, patch.object(
+            self.auto_social,
+            "create_social_task",
+            return_value=task,
+        ), patch.object(
+            self.auto_social,
+            "generate_social_reply",
+            return_value={"emotion": "calm", "action": "rest", "text": ""},
+        ):
+            result = self.auto_social._do_auto_social_round(db, source_pet)
+
+        self.assertTrue(result)
+        get_conversation.assert_called_once_with(db, source_pet.id, higher_rank_pet.id)
 
 
 if __name__ == "__main__":

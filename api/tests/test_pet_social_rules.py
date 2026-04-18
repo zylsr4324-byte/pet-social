@@ -587,6 +587,22 @@ class PetSocialRuleTests(unittest.TestCase):
         self.assertIn("这轮更像对方在靠近你", prompt)
         self.assertIn("话题已经持续了一会儿", prompt)
 
+    def test_build_social_llm_input_includes_optional_memory_context(self):
+        target_pet = self.create_pet(2, "Bean")
+        source_pet = self.create_pet(1, "Mochi")
+
+        input_messages = self.pet_social.build_social_llm_input(
+            target_pet=target_pet,
+            source_pet=source_pet,
+            recent_messages=[],
+            latest_input="hello",
+            task_type="chat",
+            memory_context="短期互动记忆\n- 本轮由 Mochi 主动发起。",
+        )
+
+        self.assertIn("短期互动记忆", input_messages[0]["content"])
+        self.assertIn("本轮由 Mochi 主动发起", input_messages[0]["content"])
+
     def test_build_social_candidate_response_includes_relationship_fields(self):
         current_pet_id = 1
         candidate_pet = self.pet_social.Pet(

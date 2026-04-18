@@ -1,4 +1,4 @@
-"""自主社交 worker — 由 APScheduler 定时调用。"""
+"""Autonomous social worker driven by APScheduler."""
 
 import json
 import logging
@@ -10,19 +10,25 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import Pet, PetDailyQuota, PetTask
+from app.services.llm_client import request_llm_reply
 from app.services.pet_social import (
     DAILY_SOCIAL_INITIATION_LIMIT,
     apply_pet_social_presence,
     complete_social_task,
     create_social_message,
     create_social_task,
+    estimate_relationship_score,
+    generate_social_reply,
+    get_conversation_between,
+    get_friendship_between,
     get_or_create_conversation,
+    read_recent_social_messages,
 )
 from app.services.pet_stats import apply_decay_and_save, evaluate_social_intent
 
 logger = logging.getLogger(__name__)
 
-AUTO_SOCIAL_TRIGGER_PROBABILITY = 0.4  # 每只宠物本轮触发概率
+AUTO_SOCIAL_TRIGGER_PROBABILITY = 0.4  # Per-pet trigger probability for each tick.
 AUTO_SOCIAL_PERCEPTION_WINDOW_MINUTES = 10
 AUTO_SOCIAL_PERCEPTION_LIMIT = 3
 AUTO_SOCIAL_ACTION_MAX_LENGTH = 120
@@ -30,6 +36,15 @@ AUTO_SOCIAL_EMOTION_MAX_LENGTH = 40
 AUTO_SOCIAL_BODY_LANGUAGE_MAX_LENGTH = 160
 AUTO_SOCIAL_VOCALIZATION_MAX_LENGTH = 80
 AUTO_SOCIAL_INTERNAL_THOUGHT_MAX_LENGTH = 200
+AUTO_SOCIAL_MAX_TURNS = 3
+AUTO_SOCIAL_TARGET_RELATIONSHIP_SCORE_SCALE = 0.08
+AUTO_SOCIAL_TARGET_CONVERSATION_BONUS = 1.5
+AUTO_SOCIAL_TARGET_RECENT_INCOMING_MESSAGE_BONUS = 2.5
+AUTO_SOCIAL_TARGET_SOCIAL_PRESENCE_BONUS = 1.0
+AUTO_SOCIAL_TARGET_FRESH_ACTIVITY_WINDOW_MINUTES = 15
+AUTO_SOCIAL_TARGET_FRESH_ACTIVITY_BONUS = 1.5
+AUTO_SOCIAL_TARGET_INTENT_MATCH_BONUS = 2.0
+AUTO_SOCIAL_TARGET_PLAYMATE_ENERGY_MIN = 60
 SOCIAL_INTENTS = frozenset(
     {
         "seek_playmate",
@@ -63,8 +78,9 @@ INTENT_SOCIAL_EMOTIONS = {
 }
 
 
+# Tick entrypoints
 def run_decay_tick() -> None:
-    """每 10 分钟：对所有宠物执行状态衰减并写库。"""
+    """Apply periodic stat decay to all pets and persist the result."""
     db: Session = SessionLocal()
     try:
         pets = db.query(Pet).all()
@@ -83,7 +99,7 @@ def run_decay_tick() -> None:
 
 
 def run_auto_social_tick() -> None:
-    """每 30 分钟：随机让满足条件的宠物自动发起社交。"""
+    """Let eligible pets autonomously initiate social interaction on each tick."""
     db: Session = SessionLocal()
     try:
         pets = db.query(Pet).all()
@@ -118,6 +134,7 @@ def run_auto_social_tick() -> None:
         db.close()
 
 
+# Auto social round orchestration
 def _do_auto_social_round(db: Session, source_pet: Pet) -> bool:
     intent = evaluate_social_intent(source_pet)
 
@@ -130,11 +147,17 @@ def _do_auto_social_round(db: Session, source_pet: Pet) -> bool:
         _record_auto_social_self_behavior(db, source_pet, "look_around")
         return False
 
-    recent_events = _collect_recent_auto_social_events(nearby_pets)
+    ranked_nearby_pets = _rank_auto_social_targets(
+        db,
+        source_pet=source_pet,
+        nearby_pets=nearby_pets,
+        intent=intent,
+    )
+    recent_events = _collect_recent_auto_social_events(ranked_nearby_pets)
     llm_context = _build_auto_social_llm_context(
         source_pet=source_pet,
         intent=intent,
-        nearby_pets=nearby_pets,
+        nearby_pets=ranked_nearby_pets,
         recent_events=recent_events,
     )
 
@@ -150,16 +173,21 @@ def _do_auto_social_round(db: Session, source_pet: Pet) -> bool:
             source_pet.id,
         )
         action_decision = _build_placeholder_social_action(llm_context)
-    target_pet = _resolve_action_target(action_decision, nearby_pets)
+    target_pet = _resolve_action_target(action_decision, ranked_nearby_pets)
+    if target_pet is None:
+        target_pet = _select_ranked_auto_social_target(
+            action_decision,
+            ranked_nearby_pets,
+        )
 
     if target_pet is None:
         _record_auto_social_self_behavior(db, source_pet, "look_around")
         return False
 
+    conversation = get_or_create_conversation(db, source_pet.id, target_pet.id)
     action_text = _build_auto_social_message(source_pet, target_pet, action_decision)
     emotion = _derive_social_emotion(intent, action_decision)
     action = str(action_decision["action"])
-    conversation = get_or_create_conversation(db, source_pet.id, target_pet.id)
     create_social_message(
         db,
         conversation.id,
@@ -175,13 +203,393 @@ def _do_auto_social_round(db: Session, source_pet: Pet) -> bool:
         task_type="greet",
         input_text=action_text,
     )
+    apply_pet_social_presence(source_pet, emotion=emotion, action=action)
+    transcript = [
+        _format_auto_social_transcript_line(
+            source_pet,
+            action=action,
+            emotion=emotion,
+            text=action_text,
+        ),
+    ]
+    turn_memory = _initialize_auto_social_turn_memory(
+        initiator=source_pet,
+        responder=target_pet,
+        intent=intent,
+        opening_action=action,
+        opening_emotion=emotion,
+        opening_text=action_text,
+    )
+    last_speaker = source_pet
+    last_listener = target_pet
+    last_text = action_text
+
+    for turn_index in range(2, AUTO_SOCIAL_MAX_TURNS + 1):
+        if _should_stop_auto_social_turn(
+            action_decision if turn_index == 2 else reply_payload,
+            speaker=last_speaker,
+            listener=last_listener,
+            allow_record_then_stop=False,
+        ):
+            break
+
+        recent_messages = read_recent_social_messages(db, conversation.id)
+        reply_payload = _generate_auto_social_turn_reply(
+            speaker=last_listener,
+            listener=last_speaker,
+            recent_messages=recent_messages,
+            latest_input=last_text,
+            task_type="chat" if turn_index > 2 else "greet",
+            memory_context=_build_auto_social_memory_context(
+                turn_memory=turn_memory,
+                speaker=last_listener,
+                listener=last_speaker,
+                recent_messages=recent_messages,
+            ),
+        )
+
+        if _should_stop_auto_social_turn(
+            reply_payload,
+            speaker=last_listener,
+            listener=last_speaker,
+            allow_record_then_stop=True,
+        ):
+            if not _can_record_auto_social_turn(reply_payload):
+                break
+
+        reply_text = _truncate_text(_safe_pet_text(reply_payload.get("text")))
+        if not reply_text:
+            break
+
+        reply_emotion = _safe_pet_text(reply_payload.get("emotion"), default="calm")
+        reply_action = _truncate_text(
+            _safe_pet_text(reply_payload.get("action"), default="respond"),
+            AUTO_SOCIAL_ACTION_MAX_LENGTH,
+        )
+        create_social_message(
+            db,
+            conversation.id,
+            last_listener.id,
+            reply_text,
+            emotion=reply_emotion,
+            action=reply_action,
+        )
+        apply_pet_social_presence(
+            last_listener,
+            emotion=reply_emotion,
+            action=reply_action,
+        )
+        transcript.append(
+            _format_auto_social_transcript_line(
+                last_listener,
+                action=reply_action,
+                emotion=reply_emotion,
+                text=reply_text,
+            )
+        )
+        _remember_auto_social_turn(
+            turn_memory,
+            pet=last_listener,
+            action=reply_action,
+            emotion=reply_emotion,
+            text=reply_text,
+        )
+        last_speaker, last_listener = last_listener, last_speaker
+        last_text = reply_text
+
     complete_social_task(
         task,
-        f"Recorded initiator action '{action}'. Waiting for target pet heartbeat.",
+        "Auto social exchange completed: " + " | ".join(transcript),
     )
-    apply_pet_social_presence(source_pet, emotion=emotion, action=action)
     _increment_social_initiation_quota(db, source_pet.id)
     return True
+
+
+# Multi-turn dialogue helpers
+def _generate_auto_social_turn_reply(
+    *,
+    speaker: Pet,
+    listener: Pet,
+    recent_messages: list[Any],
+    latest_input: str,
+    task_type: str,
+    memory_context: str | None = None,
+) -> dict[str, str]:
+    try:
+        return generate_social_reply(
+            target_pet=speaker,
+            source_pet=listener,
+            recent_messages=recent_messages,
+            latest_input=latest_input,
+            task_type=task_type,
+            memory_context=memory_context,
+        )
+    except Exception:
+        logger.exception(
+            "auto social reply generation failed for pet %s responding to pet %s",
+            getattr(speaker, "id", None),
+            getattr(listener, "id", None),
+        )
+        return {"emotion": "calm", "action": "rest", "text": ""}
+
+
+def _should_stop_auto_social_turn(
+    action_payload: dict[str, Any],
+    *,
+    speaker: Pet,
+    listener: Pet,
+    allow_record_then_stop: bool,
+) -> bool:
+    action = _safe_pet_text(action_payload.get("action")).lower()
+    text = _safe_pet_text(action_payload.get("text"))
+    body_language = _safe_pet_text(action_payload.get("body_language"))
+    vocalization = _safe_pet_text(action_payload.get("vocalization"))
+    should_continue = _coerce_optional_bool(action_payload.get("should_continue"))
+    target_pet_id = _coerce_optional_int(action_payload.get("target_pet_id"))
+
+    if action == "rest":
+        return True
+    if should_continue is False:
+        return not allow_record_then_stop or not text
+    if not text and not body_language and not vocalization:
+        return True
+    if target_pet_id is not None and target_pet_id != getattr(listener, "id", None):
+        return True
+    if target_pet_id is None and not text:
+        return True
+
+    return False
+
+
+def _can_record_auto_social_turn(action_payload: dict[str, Any]) -> bool:
+    action = _safe_pet_text(action_payload.get("action")).lower()
+    text = _safe_pet_text(action_payload.get("text"))
+    body_language = _safe_pet_text(action_payload.get("body_language"))
+    vocalization = _safe_pet_text(action_payload.get("vocalization"))
+
+    if action == "rest":
+        return False
+    if not text and not body_language and not vocalization:
+        return False
+    return True
+
+
+def _format_auto_social_transcript_line(
+    pet: Pet,
+    *,
+    action: str,
+    emotion: str,
+    text: str,
+) -> str:
+    normalized_action = _truncate_text(_safe_pet_text(action, default="unknown"))
+    normalized_emotion = _truncate_text(_safe_pet_text(emotion, default="calm"))
+    normalized_text = _truncate_text(_safe_pet_text(text))
+    return (
+        f"{pet.pet_name}[action={normalized_action}, emotion={normalized_emotion}]: "
+        f"{normalized_text}"
+    )
+
+
+def _initialize_auto_social_turn_memory(
+    *,
+    initiator: Pet,
+    responder: Pet,
+    intent: str,
+    opening_action: str,
+    opening_emotion: str,
+    opening_text: str,
+) -> dict[str, Any]:
+    turn_memory = {
+        "initiator_name": initiator.pet_name,
+        "responder_name": responder.pet_name,
+        "intent": intent,
+        "recent_turns": [],
+        "latest_by_pet_id": {},
+    }
+    _remember_auto_social_turn(
+        turn_memory,
+        pet=initiator,
+        action=opening_action,
+        emotion=opening_emotion,
+        text=opening_text,
+    )
+    return turn_memory
+
+
+def _remember_auto_social_turn(
+    turn_memory: dict[str, Any],
+    *,
+    pet: Pet,
+    action: str,
+    emotion: str,
+    text: str,
+) -> None:
+    turn_summary = {
+        "pet_id": pet.id,
+        "pet_name": pet.pet_name,
+        "action": _truncate_text(_safe_pet_text(action, default="unknown")),
+        "emotion": _truncate_text(_safe_pet_text(emotion, default="calm")),
+        "text": _truncate_text(_safe_pet_text(text)),
+    }
+    recent_turns = turn_memory.setdefault("recent_turns", [])
+    recent_turns.append(turn_summary)
+    turn_memory["recent_turns"] = recent_turns[-4:]
+    latest_by_pet_id = turn_memory.setdefault("latest_by_pet_id", {})
+    latest_by_pet_id[pet.id] = turn_summary
+
+
+def _build_auto_social_memory_context(
+    *,
+    turn_memory: dict[str, Any],
+    speaker: Pet,
+    listener: Pet,
+    recent_messages: list[Any],
+) -> str:
+    recent_turns = turn_memory.get("recent_turns", [])
+    latest_by_pet_id = turn_memory.get("latest_by_pet_id", {})
+    latest_speaker_turn = latest_by_pet_id.get(speaker.id)
+    latest_listener_turn = latest_by_pet_id.get(listener.id)
+    latest_message_preview = ""
+    if recent_messages:
+        latest_message_preview = _truncate_text(
+            _safe_pet_text(getattr(recent_messages[-1], "content", None))
+        )
+
+    topic_hint = _build_auto_social_topic_hint(recent_turns)
+    lines = [
+        "短期互动记忆",
+        (
+            f"- 本轮由 {turn_memory.get('initiator_name', 'Unknown')} 主动发起，"
+            f"起因意图是 {turn_memory.get('intent', 'observe_silently')}。"
+        ),
+        f"- 当前轮到 {speaker.pet_name} 接 {listener.pet_name} 的话。",
+    ]
+    if latest_message_preview:
+        lines.append(f"- 最新一句是：{latest_message_preview}")
+    if topic_hint:
+        lines.append(f"- 当前话题线索：{topic_hint}")
+    if latest_listener_turn is not None:
+        lines.append(
+            f"- {listener.pet_name} 刚刚的状态：action={latest_listener_turn['action']}, "
+            f"emotion={latest_listener_turn['emotion']}。"
+        )
+    if latest_speaker_turn is not None:
+        lines.append(
+            f"- {speaker.pet_name} 刚刚的状态：action={latest_speaker_turn['action']}, "
+            f"emotion={latest_speaker_turn['emotion']}。"
+        )
+    if recent_turns:
+        lines.append("- 最近几句互动：")
+        for turn in recent_turns[-4:]:
+            lines.append(
+                f"  - {turn['pet_name']}[action={turn['action']}, emotion={turn['emotion']}]: {turn['text']}"
+            )
+    lines.append(
+        "- 尽量接住上一句里的具体内容、动作或情绪，不要只重复泛泛问候。"
+    )
+    return "\n".join(lines)
+
+
+def _build_auto_social_topic_hint(recent_turns: list[dict[str, Any]]) -> str:
+    fragments: list[str] = []
+    for turn in recent_turns[-3:]:
+        text = _safe_pet_text(turn.get("text"))
+        if not text:
+            continue
+        fragments.append(text[:24])
+    return " / ".join(fragments)
+
+
+# Target selection helpers
+def _rank_auto_social_targets(
+    db: Session,
+    *,
+    source_pet: Pet,
+    nearby_pets: list[Pet],
+    intent: str,
+) -> list[Pet]:
+    scored_candidates: list[tuple[float, int, Pet]] = []
+
+    for index, candidate in enumerate(nearby_pets):
+        score = _score_auto_social_target(
+            db,
+            source_pet=source_pet,
+            candidate=candidate,
+            intent=intent,
+        )
+        scored_candidates.append((score, -index, candidate))
+
+    scored_candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [candidate for _, _, candidate in scored_candidates]
+
+
+def _score_auto_social_target(
+    db: Session,
+    *,
+    source_pet: Pet,
+    candidate: Pet,
+    intent: str,
+) -> float:
+    friendship = get_friendship_between(db, source_pet.id, candidate.id)
+    conversation = get_conversation_between(db, source_pet.id, candidate.id)
+    recent_messages = read_recent_social_messages(db, conversation.id) if conversation else []
+    relationship_score = estimate_relationship_score(
+        friendship,
+        recent_messages,
+        source_pet.id,
+    )
+
+    score = relationship_score * AUTO_SOCIAL_TARGET_RELATIONSHIP_SCORE_SCALE
+
+    if conversation is not None:
+        score += AUTO_SOCIAL_TARGET_CONVERSATION_BONUS
+
+    if recent_messages and recent_messages[-1].sender_pet_id == candidate.id:
+        score += AUTO_SOCIAL_TARGET_RECENT_INCOMING_MESSAGE_BONUS
+
+    if _safe_pet_text(getattr(candidate, "social_action", None)) or _safe_pet_text(
+        getattr(candidate, "social_emotion", None)
+    ):
+        score += AUTO_SOCIAL_TARGET_SOCIAL_PRESENCE_BONUS
+
+    stats_updated_at = getattr(candidate, "stats_updated_at", None)
+    if _is_recent_auto_social_activity(stats_updated_at):
+        score += AUTO_SOCIAL_TARGET_FRESH_ACTIVITY_BONUS
+
+    if _target_matches_auto_social_intent(candidate, intent):
+        score += AUTO_SOCIAL_TARGET_INTENT_MATCH_BONUS
+
+    return score
+
+
+def _is_recent_auto_social_activity(value: Any) -> bool:
+    if not isinstance(value, datetime):
+        return False
+
+    candidate_time = value
+    if candidate_time.tzinfo is None:
+        candidate_time = candidate_time.replace(tzinfo=timezone.utc)
+
+    return candidate_time >= datetime.now(timezone.utc) - timedelta(
+        minutes=AUTO_SOCIAL_TARGET_FRESH_ACTIVITY_WINDOW_MINUTES
+    )
+
+
+def _target_matches_auto_social_intent(candidate: Pet, intent: str) -> bool:
+    if intent == "seek_playmate":
+        return getattr(candidate, "energy", 0) >= AUTO_SOCIAL_TARGET_PLAYMATE_ENERGY_MIN
+
+    if intent == "observe_silently":
+        return bool(_safe_pet_text(getattr(candidate, "social_action", None)))
+
+    if intent == "explore_around":
+        return _safe_pet_text(getattr(candidate, "social_emotion", None)) in {
+            "curious",
+            "excited",
+            "warm",
+        }
+
+    return False
 
 
 def _find_recently_active_pets(db: Session, source_pet: Pet) -> list[Pet]:
@@ -200,6 +608,7 @@ def _find_recently_active_pets(db: Session, source_pet: Pet) -> list[Pet]:
     )
 
 
+# LLM context and prompt helpers
 def _build_auto_social_llm_context(
     *,
     source_pet: Pet,
@@ -222,11 +631,17 @@ def _build_auto_social_llm_context(
             recent_events,
         ),
         "allowed_action_shape": {
+            "action_type": "string",
+            "text": "string",
             "target_pet_id": "int|null",
-            "action": "string",
-            "body_language": "string",
-            "vocalization": "string",
-            "internal_thought": "string",
+            "reason": "string",
+            "should_continue": "boolean",
+            "emotion": "string",
+            "metadata": {
+                "body_language": "string",
+                "vocalization": "string",
+                "internal_thought": "string",
+            },
         },
     }
 
@@ -283,11 +698,21 @@ def build_autonomous_action_prompt(
 
 严格按下面的 JSON 结构输出：
 {{
+  "action_type": "approach",
+  "action": "approach",
+  "text": "friendly greeting or empty string",
   "target_pet_id": null,
-  "action": "action_name",
+  "reason": "why this action feels right right now",
+  "should_continue": true,
+  "emotion": "curious",
   "body_language": "physical movement or posture",
   "vocalization": "sound or empty string",
-  "internal_thought": "why this action feels right right now"
+  "internal_thought": "why this action feels right right now",
+  "metadata": {{
+    "body_language": "physical movement or posture",
+    "vocalization": "sound or empty string",
+    "internal_thought": "why this action feels right right now"
+  }}
 }}"""
 
 
@@ -329,6 +754,7 @@ def _serialize_pet_context(pet: Pet) -> dict[str, Any]:
     }
 
 
+# LLM request and fallback helpers
 def _build_placeholder_social_action(llm_context: dict[str, Any]) -> dict[str, Any]:
     source_pet = llm_context["source_pet"]
     source_name = str(source_pet["name"])
@@ -346,10 +772,18 @@ def _build_placeholder_social_action(llm_context: dict[str, Any]) -> dict[str, A
         )
         return {
             "action": "seek_playmate",
+            "action_type": "seek_playmate",
             "emotion": "excited",
             "body_language": "ears_forward_tail_wagging",
             "vocalization": "friendly chirp",
             "internal_thought": "I have energy and want someone's attention right now.",
+            "reason": "I have energy and want someone's attention right now.",
+            "should_continue": True,
+            "metadata": {
+                "body_language": "ears_forward_tail_wagging",
+                "vocalization": "friendly chirp",
+                "internal_thought": "I have energy and want someone's attention right now.",
+            },
             "target_pet_id": target_id,
             "text": text,
         }
@@ -362,10 +796,18 @@ def _build_placeholder_social_action(llm_context: dict[str, Any]) -> dict[str, A
         )
         return {
             "action": "observe_silently",
+            "action_type": "observe_silently",
             "emotion": "curious",
             "body_language": "still_body_soft_gaze",
             "vocalization": "",
             "internal_thought": "I want to read the room before I get any closer.",
+            "reason": "I want to read the room before I get any closer.",
+            "should_continue": target_id is not None,
+            "metadata": {
+                "body_language": "still_body_soft_gaze",
+                "vocalization": "",
+                "internal_thought": "I want to read the room before I get any closer.",
+            },
             "target_pet_id": target_id,
             "text": text,
         }
@@ -377,18 +819,77 @@ def _build_placeholder_social_action(llm_context: dict[str, Any]) -> dict[str, A
     )
     return {
         "action": "explore_around",
+        "action_type": "explore_around",
         "emotion": "curious",
         "body_language": "relaxed_steps_head_turning",
         "vocalization": "soft hello",
         "internal_thought": "The area feels interesting and I want to check it out.",
+        "reason": "The area feels interesting and I want to check it out.",
+        "should_continue": target_id is not None,
+        "metadata": {
+            "body_language": "relaxed_steps_head_turning",
+            "vocalization": "soft hello",
+            "internal_thought": "The area feels interesting and I want to check it out.",
+        },
         "target_pet_id": target_id,
         "text": text,
     }
 
 
-def _request_autonomous_action(llm_context: dict[str, Any]) -> Any:
-    # TODO: Call LLM to decide next action based on context.
-    return _build_placeholder_social_action(llm_context)
+def _request_autonomous_action(llm_context: dict[str, Any]) -> dict[str, Any]:
+    source_pet = llm_context.get("source_pet", {})
+    pet_id = source_pet.get("id")
+    intent = llm_context.get("intent")
+
+    logger.info(
+        "requesting autonomous action via llm for pet %s with intent %s",
+        pet_id,
+        intent,
+    )
+
+    try:
+        raw_action_response = request_llm_reply(
+            [
+                {
+                    "role": "developer",
+                    "content": str(llm_context.get("system_prompt", "")).strip(),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "请只返回严格 JSON。优先使用 action_type、text、target_pet_id、"
+                        "reason、should_continue、emotion、metadata 的新格式。"
+                        "旧格式 action、text、target_pet_id、emotion、body_language、"
+                        "vocalization、internal_thought 也可以接受。"
+                    ),
+                },
+            ]
+        )
+    except Exception:
+        logger.exception(
+            "autonomous action llm request failed for pet %s; using placeholder action",
+            pet_id,
+        )
+        return _build_placeholder_social_action(llm_context)
+
+    action_decision = _try_normalize_autonomous_action_decision(
+        raw_action_response,
+        llm_context,
+    )
+    if action_decision is None:
+        logger.warning(
+            "autonomous action llm reply could not be parsed for pet %s; using placeholder action",
+            pet_id,
+        )
+        return _build_placeholder_social_action(llm_context)
+
+    logger.info(
+        "autonomous action llm reply parsed for pet %s action=%s target_pet_id=%s",
+        pet_id,
+        action_decision["action"],
+        action_decision.get("target_pet_id"),
+    )
+    return action_decision
 
 
 def _resolve_action_target(
@@ -401,23 +902,58 @@ def _resolve_action_target(
     return None
 
 
+def _select_ranked_auto_social_target(
+    action_decision: dict[str, Any],
+    ranked_nearby_pets: list[Pet],
+) -> Pet | None:
+    if not ranked_nearby_pets:
+        return None
+
+    action = _safe_pet_text(action_decision.get("action")).lower()
+    should_continue = _coerce_optional_bool(action_decision.get("should_continue"))
+    text = _safe_pet_text(action_decision.get("text"))
+
+    if action == "rest":
+        return None
+    if should_continue is False and not text:
+        return None
+
+    return ranked_nearby_pets[0]
+
+
+# Autonomous action normalization helpers
 def _normalize_autonomous_action_decision(
     raw_action_response: Any,
     llm_context: dict[str, Any],
 ) -> dict[str, Any]:
+    normalized = _try_normalize_autonomous_action_decision(
+        raw_action_response,
+        llm_context,
+    )
+    if normalized is None:
+        return _build_placeholder_social_action(llm_context)
+    return normalized
+
+
+def _try_normalize_autonomous_action_decision(
+    raw_action_response: Any,
+    llm_context: dict[str, Any],
+) -> dict[str, Any] | None:
     try:
         payload = _coerce_action_payload_dict(raw_action_response)
     except Exception:
         logger.exception(
             "auto social action payload coercion failed; using fallback action"
         )
-        return _build_placeholder_social_action(llm_context)
+        return None
 
     if payload is None:
         logger.warning(
             "auto social action payload is not valid JSON/object; using fallback action"
         )
-        return _build_placeholder_social_action(llm_context)
+        return None
+
+    payload = _normalize_autonomous_action_payload(payload)
 
     nearby_pet_ids = {
         pet_context.get("id")
@@ -435,7 +971,7 @@ def _normalize_autonomous_action_decision(
         logger.warning(
             "auto social action payload is missing required fields; using fallback action"
         )
-        return _build_placeholder_social_action(llm_context)
+        return None
 
     if (
         target_pet_id is not None
@@ -466,16 +1002,69 @@ def _normalize_autonomous_action_decision(
         ),
         AUTO_SOCIAL_INTERNAL_THOUGHT_MAX_LENGTH,
     )
+    reason = _truncate_text(
+        _safe_pet_text(payload.get("reason"), default=internal_thought),
+        AUTO_SOCIAL_INTERNAL_THOUGHT_MAX_LENGTH,
+    )
     text = _truncate_text(_safe_pet_text(payload.get("text")))
+    should_continue = _coerce_optional_bool(payload.get("should_continue"))
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+
+    if should_continue is None:
+        should_continue = target_pet_id is not None and action != "rest"
 
     return {
         "target_pet_id": target_pet_id,
         "action": action,
+        "action_type": action,
         "emotion": emotion,
         "body_language": body_language,
         "vocalization": vocalization,
         "internal_thought": internal_thought,
+        "reason": reason,
+        "should_continue": should_continue,
+        "metadata": metadata,
         "text": text,
+    }
+
+
+def _normalize_autonomous_action_payload(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    action = payload.get("action")
+    if not isinstance(action, str) or not action.strip():
+        action = payload.get("action_type")
+
+    body_language = payload.get("body_language")
+    if not isinstance(body_language, str) or not body_language.strip():
+        body_language = metadata.get("body_language")
+
+    vocalization = payload.get("vocalization")
+    if not isinstance(vocalization, str):
+        vocalization = metadata.get("vocalization")
+
+    internal_thought = payload.get("internal_thought")
+    if not isinstance(internal_thought, str) or not internal_thought.strip():
+        internal_thought = metadata.get("internal_thought")
+    if not isinstance(internal_thought, str) or not internal_thought.strip():
+        internal_thought = payload.get("reason")
+
+    reason = payload.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        reason = internal_thought
+
+    return {
+        "target_pet_id": payload.get("target_pet_id"),
+        "action": action,
+        "emotion": payload.get("emotion"),
+        "body_language": body_language,
+        "vocalization": vocalization,
+        "internal_thought": internal_thought,
+        "reason": reason,
+        "should_continue": payload.get("should_continue"),
+        "metadata": metadata,
+        "text": payload.get("text"),
     }
 
 
@@ -511,10 +1100,14 @@ def _coerce_action_payload_object(raw_action_response: Any) -> dict[str, Any] | 
     fields = (
         "target_pet_id",
         "action",
+        "action_type",
         "emotion",
         "body_language",
         "vocalization",
         "internal_thought",
+        "reason",
+        "should_continue",
+        "metadata",
         "text",
     )
     payload = {
@@ -573,6 +1166,7 @@ def _build_auto_social_message(
     return _truncate_text(" ".join(segments))
 
 
+# Low-level text and coercion helpers
 def _coerce_optional_int(value: Any) -> int | None:
     if value is None:
         return None
@@ -586,6 +1180,21 @@ def _coerce_optional_int(value: Any) -> int | None:
         return None
 
 
+def _coerce_optional_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no"}:
+            return False
+
+    return None
+
+
+# Task persistence helpers
 def _record_auto_social_self_behavior(
     db: Session,
     source_pet: Pet,
