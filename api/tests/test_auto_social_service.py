@@ -372,22 +372,22 @@ class AutoSocialServiceTests(unittest.TestCase):
             target_pet_id=target_pet.id,
             source_pet_id=source_pet.id,
             task_type="greet",
-            input_text="Mochi sniffs Bean from a careful distance.",
+            input_text="这只宠物对对方做出了回应。",
         )
         get_conversation.assert_called_once_with(db, source_pet.id, target_pet.id)
         create_message.assert_called_once_with(
             db,
             conversation.id,
             source_pet.id,
-            "Mochi sniffs Bean from a careful distance.",
-            emotion="curious",
-            action="sniff_target",
+            "这只宠物对对方做出了回应。",
+            emotion="好奇",
+            action="谨慎靠近",
         )
         complete_task.assert_called_once()
         completion_text = complete_task.call_args.args[1]
-        self.assertIn("Auto social exchange completed:", completion_text)
+        self.assertIn("自动社交交流已完成：", completion_text)
         self.assertIn(
-            "Mochi[action=sniff_target, emotion=curious]: Mochi sniffs Bean from a careful distance.",
+            "这只宠物[动作=谨慎靠近，情绪=好奇]：这只宠物对对方做出了回应。",
             completion_text,
         )
         apply_presence.assert_called_once_with(
@@ -469,11 +469,11 @@ class AutoSocialServiceTests(unittest.TestCase):
 
         self.assertTrue(result)
         create_message.assert_called_once()
-        self.assertEqual(create_message.call_args.args[3], "Mochi精神一振，主动邀请Bean一起玩。")
+        self.assertEqual(create_message.call_args.args[3], "这只宠物主动邀请对方一起玩。")
         create_task.assert_called_once()
         complete_task.assert_called_once()
         self.assertIn(
-            "Mochi[action=seek_playmate, emotion=excited]: Mochi精神一振，主动邀请Bean一起玩。",
+            "这只宠物[动作=邀请玩耍，情绪=兴奋]：这只宠物主动邀请对方一起玩。",
             complete_task.call_args.args[1],
         )
 
@@ -513,11 +513,11 @@ class AutoSocialServiceTests(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(
             create_message.call_args.kwargs["action"],
-            "seek_playmate",
+            "邀请玩耍",
         )
         self.assertEqual(
             create_message.call_args.args[3],
-            "Mochi精神一振，主动邀请Bean一起玩。",
+            "这只宠物主动邀请对方一起玩。",
         )
 
     def test_social_intent_with_non_nearby_target_records_self_behavior_instead_of_dirty_task(self):
@@ -628,7 +628,7 @@ class AutoSocialServiceTests(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(
             create_message.call_args.args[3],
-            "Mochi精神一振，主动邀请Bean一起玩。",
+            "这只宠物主动邀请对方一起玩。",
         )
 
     def test_request_autonomous_action_calls_existing_llm_and_parses_json(self):
@@ -919,11 +919,11 @@ class AutoSocialServiceTests(unittest.TestCase):
         self.assertEqual(created_messages[1][2], target_pet.id)
         self.assertEqual(created_messages[2][2], source_pet.id)
         self.assertIn(
-            "Bean[action=reply, emotion=warm]: Bean says hello back.",
+            "这只宠物[动作=回应，情绪=亲近]：这只宠物对对方做出了回应。",
             complete_task.call_args.args[1],
         )
         self.assertIn(
-            "Mochi[action=follow_up, emotion=curious]: Mochi asks if Bean wants to play.",
+            "这只宠物[动作=继续回应，情绪=好奇]：这只宠物对对方做出了回应。",
             complete_task.call_args.args[1],
         )
 
@@ -1090,7 +1090,7 @@ class AutoSocialServiceTests(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(create_message.call_count, 1)
         self.assertIn(
-            "Mochi[action=approach, emotion=friendly]: Mochi says hello.",
+            "这只宠物[动作=靠近，情绪=友好]：这只宠物对对方做出了回应。",
             complete_task.call_args.args[1],
         )
 
@@ -1142,14 +1142,14 @@ class AutoSocialServiceTests(unittest.TestCase):
             seen_recent_message_lengths.append(len(recent_messages))
             if len(seen_recent_message_lengths) == 1:
                 self.assertEqual(len(recent_messages), 2)
-                self.assertEqual(recent_messages[-1].content, "Mochi says hello.")
+                self.assertEqual(recent_messages[-1].content, "这只宠物对对方做出了回应。")
                 return {
                     "emotion": "warm",
                     "action": "reply",
                     "text": "Bean says hello back.",
                 }
             self.assertEqual(len(recent_messages), 3)
-            self.assertEqual(recent_messages[-1].content, "Bean says hello back.")
+            self.assertEqual(recent_messages[-1].content, "这只宠物对对方做出了回应。")
             return {
                 "emotion": "curious",
                 "action": "follow_up",
@@ -1266,10 +1266,10 @@ class AutoSocialServiceTests(unittest.TestCase):
         self.assertEqual(len(captured_memory_contexts), 1)
         memory_context = captured_memory_contexts[0]
         self.assertIsInstance(memory_context, str)
-        self.assertIn("本轮由 Mochi 主动发起", memory_context)
-        self.assertIn("当前轮到 Bean 接 Mochi 的话", memory_context)
+        self.assertIn("本轮由 发起宠物 主动发起", memory_context)
+        self.assertIn("当前轮到 当前宠物 接 对方 的话", memory_context)
         self.assertIn("最新一句是：Mochi says hello.", memory_context)
-        self.assertIn("Mochi 刚刚的状态：action=approach, emotion=friendly", memory_context)
+        self.assertIn("对方 刚刚的状态：动作=靠近，情绪=友好", memory_context)
 
     def test_auto_social_third_turn_gets_richer_memory_context_than_second_turn(self):
         db = MagicMock()
@@ -1365,8 +1365,8 @@ class AutoSocialServiceTests(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(len(seen_memory_contexts), 2)
         self.assertIn("最近几句互动：", seen_memory_contexts[0])
-        self.assertIn("Mochi[action=approach, emotion=friendly]: Mochi says hello.", seen_memory_contexts[0])
-        self.assertIn("Bean[action=reply, emotion=warm]: Bean says hello back.", seen_memory_contexts[1])
+        self.assertIn("这只宠物[动作=靠近，情绪=友好]：这只宠物对对方做出了回应。", seen_memory_contexts[0])
+        self.assertIn("这只宠物[动作=回应，情绪=亲近]：这只宠物对对方做出了回应。", seen_memory_contexts[1])
         self.assertGreater(len(seen_memory_contexts[1]), len(seen_memory_contexts[0]))
 
     def test_find_recently_active_pets_uses_perception_window_and_limit(self):

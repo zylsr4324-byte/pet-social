@@ -76,6 +76,37 @@ INTENT_SOCIAL_EMOTIONS = {
     "observe_silently": "curious",
     "explore_around": "curious",
 }
+AUTO_SOCIAL_ACTION_DISPLAY_LABELS = {
+    "seek_playmate": "邀请玩耍",
+    "observe_silently": "安静观察",
+    "explore_around": "四处探索",
+    "ignore_social_and_rest": "休息",
+    "groom_self": "整理毛发",
+    "look_around": "环顾四周",
+    "approach": "靠近",
+    "reply": "回应",
+    "follow_up": "继续回应",
+    "respond": "回应",
+    "rest": "休息",
+    "sniff_target": "谨慎靠近",
+    "invite_to_play": "邀请玩耍",
+    "check_on_friend": "关心同伴",
+    "share_discovery": "分享发现",
+    "follow_up_previous_topic": "接着刚才的话题",
+    "seek_comfort": "寻求安慰",
+    "unknown": "未说明",
+}
+AUTO_SOCIAL_EMOTION_DISPLAY_LABELS = {
+    "calm": "平静",
+    "curious": "好奇",
+    "guarded": "谨慎",
+    "excited": "兴奋",
+    "warm": "亲近",
+    "friendly": "友好",
+    "shy": "害羞",
+    "happy": "开心",
+    "sad": "低落",
+}
 
 
 # Tick entrypoints
@@ -185,16 +216,21 @@ def _do_auto_social_round(db: Session, source_pet: Pet) -> bool:
         return False
 
     conversation = get_or_create_conversation(db, source_pet.id, target_pet.id)
-    action_text = _build_auto_social_message(source_pet, target_pet, action_decision)
-    emotion = _derive_social_emotion(intent, action_decision)
     action = str(action_decision["action"])
+    action_text = _ensure_chinese_auto_social_text(
+        _build_auto_social_message(source_pet, target_pet, action_decision),
+        speaker=source_pet,
+        listener=target_pet,
+        action=action,
+    )
+    emotion = _derive_social_emotion(intent, action_decision)
     create_social_message(
         db,
         conversation.id,
         source_pet.id,
         action_text,
-        emotion=emotion,
-        action=action,
+        emotion=_display_auto_social_emotion(emotion),
+        action=_display_auto_social_action(action),
     )
     task = create_social_task(
         db,
@@ -257,8 +293,8 @@ def _do_auto_social_round(db: Session, source_pet: Pet) -> bool:
             if not _can_record_auto_social_turn(reply_payload):
                 break
 
-        reply_text = _truncate_text(_safe_pet_text(reply_payload.get("text")))
-        if not reply_text:
+        raw_reply_text = _truncate_text(_safe_pet_text(reply_payload.get("text")))
+        if not raw_reply_text:
             break
 
         reply_emotion = _safe_pet_text(reply_payload.get("emotion"), default="calm")
@@ -266,13 +302,19 @@ def _do_auto_social_round(db: Session, source_pet: Pet) -> bool:
             _safe_pet_text(reply_payload.get("action"), default="respond"),
             AUTO_SOCIAL_ACTION_MAX_LENGTH,
         )
+        reply_text = _ensure_chinese_auto_social_text(
+            raw_reply_text,
+            speaker=last_listener,
+            listener=last_speaker,
+            action=reply_action,
+        )
         create_social_message(
             db,
             conversation.id,
             last_listener.id,
             reply_text,
-            emotion=reply_emotion,
-            action=reply_action,
+            emotion=_display_auto_social_emotion(reply_emotion),
+            action=_display_auto_social_action(reply_action),
         )
         apply_pet_social_presence(
             last_listener,
@@ -299,7 +341,7 @@ def _do_auto_social_round(db: Session, source_pet: Pet) -> bool:
 
     complete_social_task(
         task,
-        "Auto social exchange completed: " + " | ".join(transcript),
+        "自动社交交流已完成：" + " | ".join(transcript),
     )
     _increment_social_initiation_quota(db, source_pet.id)
     return True
@@ -381,13 +423,60 @@ def _format_auto_social_transcript_line(
     emotion: str,
     text: str,
 ) -> str:
-    normalized_action = _truncate_text(_safe_pet_text(action, default="unknown"))
-    normalized_emotion = _truncate_text(_safe_pet_text(emotion, default="calm"))
+    normalized_action = _display_auto_social_action(action)
+    normalized_emotion = _display_auto_social_emotion(emotion)
     normalized_text = _truncate_text(_safe_pet_text(text))
+    pet_name = _display_auto_social_pet_name(pet, default="这只宠物")
     return (
-        f"{pet.pet_name}[action={normalized_action}, emotion={normalized_emotion}]: "
+        f"{pet_name}[动作={normalized_action}，情绪={normalized_emotion}]："
         f"{normalized_text}"
     )
+
+
+def _display_auto_social_action(action: Any) -> str:
+    normalized_action = _truncate_text(_safe_pet_text(action, default="unknown"))
+    if _contains_ascii_letters(normalized_action):
+        return AUTO_SOCIAL_ACTION_DISPLAY_LABELS.get(normalized_action, "回应")
+    return AUTO_SOCIAL_ACTION_DISPLAY_LABELS.get(normalized_action, normalized_action)
+
+
+def _display_auto_social_emotion(emotion: Any) -> str:
+    normalized_emotion = _truncate_text(_safe_pet_text(emotion, default="calm"))
+    if _contains_ascii_letters(normalized_emotion):
+        return AUTO_SOCIAL_EMOTION_DISPLAY_LABELS.get(normalized_emotion, "平静")
+    return AUTO_SOCIAL_EMOTION_DISPLAY_LABELS.get(normalized_emotion, normalized_emotion)
+
+
+def _display_auto_social_pet_name(pet: Pet, *, default: str) -> str:
+    pet_name = _truncate_text(_safe_pet_text(getattr(pet, "pet_name", None), default=default))
+    if _contains_ascii_letters(pet_name):
+        return default
+    return pet_name
+
+
+def _ensure_chinese_auto_social_text(
+    text: str,
+    *,
+    speaker: Pet,
+    listener: Pet,
+    action: str,
+) -> str:
+    normalized_text = _truncate_text(_safe_pet_text(text))
+    if normalized_text and not _contains_ascii_letters(normalized_text):
+        return normalized_text
+
+    action_label = _display_auto_social_action(action)
+    speaker_name = _display_auto_social_pet_name(speaker, default="这只宠物")
+    listener_name = _display_auto_social_pet_name(listener, default="对方")
+    if action_label == "邀请玩耍":
+        return _truncate_text(f"{speaker_name}主动邀请{listener_name}一起玩。")
+    if action_label == "安静观察":
+        return _truncate_text(f"{speaker_name}安静地观察{listener_name}。")
+    if action_label == "四处探索":
+        return _truncate_text(f"{speaker_name}在附近探索，并向{listener_name}打招呼。")
+    if action_label == "休息":
+        return _truncate_text(f"{speaker_name}决定先休息一下。")
+    return _truncate_text(f"{speaker_name}对{listener_name}做出了回应。")
 
 
 def _initialize_auto_social_turn_memory(
@@ -400,8 +489,8 @@ def _initialize_auto_social_turn_memory(
     opening_text: str,
 ) -> dict[str, Any]:
     turn_memory = {
-        "initiator_name": initiator.pet_name,
-        "responder_name": responder.pet_name,
+        "initiator_name": _display_auto_social_pet_name(initiator, default="发起宠物"),
+        "responder_name": _display_auto_social_pet_name(responder, default="回应宠物"),
         "intent": intent,
         "recent_turns": [],
         "latest_by_pet_id": {},
@@ -426,9 +515,9 @@ def _remember_auto_social_turn(
 ) -> None:
     turn_summary = {
         "pet_id": pet.id,
-        "pet_name": pet.pet_name,
-        "action": _truncate_text(_safe_pet_text(action, default="unknown")),
-        "emotion": _truncate_text(_safe_pet_text(emotion, default="calm")),
+        "pet_name": _display_auto_social_pet_name(pet, default="这只宠物"),
+        "action": _display_auto_social_action(action),
+        "emotion": _display_auto_social_emotion(emotion),
         "text": _truncate_text(_safe_pet_text(text)),
     }
     recent_turns = turn_memory.setdefault("recent_turns", [])
@@ -456,13 +545,15 @@ def _build_auto_social_memory_context(
         )
 
     topic_hint = _build_auto_social_topic_hint(recent_turns)
+    speaker_name = _display_auto_social_pet_name(speaker, default="当前宠物")
+    listener_name = _display_auto_social_pet_name(listener, default="对方")
     lines = [
         "短期互动记忆",
         (
             f"- 本轮由 {turn_memory.get('initiator_name', 'Unknown')} 主动发起，"
-            f"起因意图是 {turn_memory.get('intent', 'observe_silently')}。"
+            f"起因意图是 {_display_auto_social_action(turn_memory.get('intent', 'observe_silently'))}。"
         ),
-        f"- 当前轮到 {speaker.pet_name} 接 {listener.pet_name} 的话。",
+        f"- 当前轮到 {speaker_name} 接 {listener_name} 的话。",
     ]
     if latest_message_preview:
         lines.append(f"- 最新一句是：{latest_message_preview}")
@@ -470,19 +561,19 @@ def _build_auto_social_memory_context(
         lines.append(f"- 当前话题线索：{topic_hint}")
     if latest_listener_turn is not None:
         lines.append(
-            f"- {listener.pet_name} 刚刚的状态：action={latest_listener_turn['action']}, "
-            f"emotion={latest_listener_turn['emotion']}。"
+            f"- {listener_name} 刚刚的状态：动作={latest_listener_turn['action']}，"
+            f"情绪={latest_listener_turn['emotion']}。"
         )
     if latest_speaker_turn is not None:
         lines.append(
-            f"- {speaker.pet_name} 刚刚的状态：action={latest_speaker_turn['action']}, "
-            f"emotion={latest_speaker_turn['emotion']}。"
+            f"- {speaker_name} 刚刚的状态：动作={latest_speaker_turn['action']}，"
+            f"情绪={latest_speaker_turn['emotion']}。"
         )
     if recent_turns:
         lines.append("- 最近几句互动：")
         for turn in recent_turns[-4:]:
             lines.append(
-                f"  - {turn['pet_name']}[action={turn['action']}, emotion={turn['emotion']}]: {turn['text']}"
+                f"  - {turn['pet_name']}[动作={turn['action']}，情绪={turn['emotion']}]：{turn['text']}"
             )
     lines.append(
         "- 尽量接住上一句里的具体内容、动作或情绪，不要只重复泛泛问候。"
@@ -1286,6 +1377,10 @@ def _safe_pet_text(value: object, *, default: str = "") -> str:
 
     normalized = value.strip()
     return normalized or default
+
+
+def _contains_ascii_letters(value: str) -> bool:
+    return any(("a" <= char.lower() <= "z") for char in value)
 
 
 def _isoformat_or_none(value: Any) -> str | None:
