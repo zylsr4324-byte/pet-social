@@ -4,6 +4,9 @@ services:
       context: ./api
       dockerfile: Dockerfile
     container_name: pet-agent-social-api
+    command: >
+      sh -c "alembic upgrade heads &&
+      exec uvicorn app.main:app --host ${API_HOST:-0.0.0.0} --port ${PORT:-${API_PORT:-8000}}"
     ports:
       - "8000:8000"
     volumes:

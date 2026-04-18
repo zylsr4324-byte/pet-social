@@ -1,7 +1,7 @@
 """legacy local schema anchor
 
-Revision ID: f7b8c9d0e1a2
-Revises: e5f6a7b8c9d0
+Revision ID: f8c9d0e1a2b3
+Revises: f7b8c9d0e1a2
 Create Date: 2026-04-17 00:00:00.000000
 
 This no-op revision preserves compatibility with local databases that were
@@ -14,8 +14,8 @@ from typing import Sequence, Union
 
 
 # revision identifiers, used by Alembic.
-revision: str = "f7b8c9d0e1a2"
-down_revision: Union[str, None] = "e5f6a7b8c9d0"
+revision: str = "f8c9d0e1a2b3"
+down_revision: Union[str, None] = "f7b8c9d0e1a2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

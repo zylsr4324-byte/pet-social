@@ -9,20 +9,18 @@ from fastapi import HTTPException, status
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LLM_BASE_URL = (
-    "https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1"
-)
+DEFAULT_LLM_BASE_URL = "https://api.deepseek.com/v1"
 LLM_BASE_URL_ENV = "LLM_BASE_URL"
 LLM_API_KEY_ENV = "LLM_API_KEY"
 LLM_MODEL_ENV = "LLM_MODEL"
 LEGACY_OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
 LEGACY_OPENAI_MODEL_ENV = "OPENAI_MODEL"
-DEFAULT_LLM_MODEL = "qwen-flash"
+DEFAULT_LLM_MODEL = "deepseek-chat"
 LLM_TIMEOUT_SECONDS = 30
 LOG_BODY_PREVIEW_LIMIT = 1000
 
 
-def build_llm_responses_url() -> str:
+def build_llm_chat_completions_url() -> str:
     base_url = os.getenv(LLM_BASE_URL_ENV, DEFAULT_LLM_BASE_URL).strip()
 
     if not base_url:
@@ -30,10 +28,10 @@ def build_llm_responses_url() -> str:
 
     normalized_base_url = base_url.rstrip("/")
 
-    if normalized_base_url.endswith("/responses"):
+    if normalized_base_url.endswith("/chat/completions"):
         return normalized_base_url
 
-    return f"{normalized_base_url}/responses"
+    return f"{normalized_base_url}/chat/completions"
 
 
 def read_llm_api_key() -> str:
@@ -46,6 +44,45 @@ def read_llm_model() -> str:
     return os.getenv(LLM_MODEL_ENV, "").strip() or os.getenv(
         LEGACY_OPENAI_MODEL_ENV, DEFAULT_LLM_MODEL
     ).strip()
+
+
+def normalize_chat_messages(
+    input_messages: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    normalized_messages: list[dict[str, str]] = []
+
+    for item in input_messages:
+        if not isinstance(item, dict):
+            continue
+
+        content = item.get("content")
+        if not isinstance(content, str):
+            continue
+
+        normalized_content = content.strip()
+        if not normalized_content:
+            continue
+
+        role = str(item.get("role", "user")).strip().lower()
+        if role == "developer":
+            role = "system"
+        elif role not in {"system", "user", "assistant", "tool"}:
+            role = "user"
+
+        normalized_messages.append(
+            {
+                "role": role,
+                "content": normalized_content,
+            }
+        )
+
+    if not normalized_messages:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="模型输入为空，暂时无法调用模型。",
+        )
+
+    return normalized_messages
 
 
 def extract_upstream_error_message(response_payload: object) -> str:
@@ -65,6 +102,27 @@ def extract_upstream_error_message(response_payload: object) -> str:
     return ""
 
 
+def _extract_message_content_text(content: object) -> str:
+    if isinstance(content, str):
+        return content.strip()
+
+    if not isinstance(content, list):
+        return ""
+
+    text_parts: list[str] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+
+        item_type = item.get("type")
+        item_text = item.get("text")
+
+        if item_type == "text" and isinstance(item_text, str) and item_text.strip():
+            text_parts.append(item_text.strip())
+
+    return "\n".join(text_parts).strip()
+
+
 def extract_response_text(response_payload: object) -> str:
     upstream_error_message = extract_upstream_error_message(response_payload)
 
@@ -80,49 +138,35 @@ def extract_response_text(response_payload: object) -> str:
             detail="模型返回的数据格式不正确。",
         )
 
-    output_items = response_payload.get("output")
+    choices = response_payload.get("choices")
 
-    if not isinstance(output_items, list):
+    if not isinstance(choices, list) or not choices:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="模型返回的数据结构不完整。",
         )
 
-    output_text_parts: list[str] = []
-
-    for item in output_items:
-        if not isinstance(item, dict):
+    for choice in choices:
+        if not isinstance(choice, dict):
             continue
 
-        content_items = item.get("content")
-
-        if not isinstance(content_items, list):
+        message = choice.get("message")
+        if not isinstance(message, dict):
             continue
 
-        for content_item in content_items:
-            if not isinstance(content_item, dict):
-                continue
+        reply_text = _extract_message_content_text(message.get("content"))
+        if not reply_text:
+            continue
 
-            if content_item.get("type") != "output_text":
-                continue
+        if len(reply_text) <= 500:
+            return reply_text
 
-            text = content_item.get("text")
+        return f"{reply_text[:497]}..."
 
-            if isinstance(text, str) and text.strip():
-                output_text_parts.append(text.strip())
-
-    if not output_text_parts:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="模型没有返回可用的回复内容。",
-        )
-
-    reply_text = " ".join(output_text_parts).strip()
-
-    if len(reply_text) <= 500:
-        return reply_text
-
-    return f"{reply_text[:497]}..."
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail="模型没有返回可用的回复内容。",
+    )
 
 
 def truncate_for_log(text: str, limit: int = LOG_BODY_PREVIEW_LIMIT) -> str:
@@ -172,11 +216,11 @@ def request_llm_reply(input_messages: list[dict[str, str]]) -> str:
         )
 
     model = read_llm_model() or DEFAULT_LLM_MODEL
-    llm_url = build_llm_responses_url()
+    llm_url = build_llm_chat_completions_url()
     request_payload = {
         "model": model,
-        "input": input_messages,
-        "max_output_tokens": 120,
+        "messages": normalize_chat_messages(input_messages),
+        "max_tokens": 120,
     }
     request_body = json.dumps(request_payload).encode("utf-8")
     request_headers = {

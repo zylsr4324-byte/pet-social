@@ -12,6 +12,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.models import Pet, PetTask
+from app.schemas import AgentActionPayload
 from app.services.pet_chat import create_pet_chat_turn
 from app.services.pet_personality import infer_temperament_label
 
@@ -236,6 +237,7 @@ def build_outbound_message_send_payload(
     message_text: str,
     source_agent_url: str | None = None,
     request_id: str | None = None,
+    action_data: AgentActionPayload | None = None,
 ) -> dict[str, Any]:
     normalized_message_text = message_text.strip()
 
@@ -263,9 +265,17 @@ def build_outbound_message_send_payload(
         }
     }
 
+    metadata: dict[str, Any] = {}
+
     normalized_source_agent_url = (source_agent_url or "").strip()
     if normalized_source_agent_url:
-        params["metadata"] = {"sourceAgentUrl": normalized_source_agent_url}
+        metadata["sourceAgentUrl"] = normalized_source_agent_url
+
+    if action_data is not None:
+        metadata["petAction"] = _serialize_agent_action_payload(action_data)
+
+    if metadata:
+        params["metadata"] = metadata
 
     return {
         "jsonrpc": A2A_JSON_RPC_VERSION,
@@ -273,6 +283,92 @@ def build_outbound_message_send_payload(
         "method": "message/send",
         "params": params,
     }
+
+
+def _serialize_agent_action_payload(action_data: AgentActionPayload) -> str:
+    try:
+        if hasattr(action_data, "model_dump_json"):
+            serialized = action_data.model_dump_json()
+            if isinstance(serialized, str) and serialized.strip():
+                parsed = json.loads(serialized)
+                if isinstance(parsed, dict):
+                    payload = parsed
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Agent action payload must serialize to an object.",
+                    )
+            else:
+                payload = None
+        else:
+            payload = None
+
+        if payload is None and hasattr(action_data, "model_dump"):
+            payload = action_data.model_dump()
+        elif payload is None and hasattr(action_data, "dict"):
+            payload = action_data.dict()
+        elif payload is None and hasattr(action_data, "json"):
+            serialized = action_data.json()
+            parsed = json.loads(serialized)
+            if isinstance(parsed, dict):
+                payload = parsed
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Agent action payload must serialize to an object.",
+                )
+        elif payload is None:
+            payload = {
+                field: getattr(action_data, field)
+                for field in ("action", "emotion", "body_language", "vocalization")
+                if hasattr(action_data, field)
+            }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Agent action payload could not be serialized.",
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="Agent action payload must serialize to an object.",
+        )
+
+    normalized_payload = {
+        "action": _require_non_empty_action_field(payload, "action"),
+        "emotion": _require_non_empty_action_field(payload, "emotion"),
+        "body_language": _require_non_empty_action_field(payload, "body_language"),
+        "vocalization": _require_non_empty_action_field(payload, "vocalization"),
+    }
+
+    try:
+        return json.dumps(normalized_payload, ensure_ascii=False)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Agent action payload contains non-serializable values.",
+        ) from exc
+
+
+def _require_non_empty_action_field(payload: dict[str, Any], field_name: str) -> str:
+    value = payload.get(field_name)
+    if not isinstance(value, str):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Agent action payload field '{field_name}' must be a string.",
+        )
+
+    normalized_value = value.strip()
+    if not normalized_value:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Agent action payload field '{field_name}' cannot be empty.",
+        )
+
+    return normalized_value
 
 
 def parse_outbound_message_send_response(
@@ -343,6 +439,7 @@ def send_message_to_external_a2a_agent(
     message_text: str,
     source_agent_url: str | None = None,
     request_id: str | None = None,
+    action_data: AgentActionPayload | None = None,
 ) -> dict[str, Any]:
     normalized_agent_url = agent_url.strip()
     if not normalized_agent_url:
@@ -355,6 +452,7 @@ def send_message_to_external_a2a_agent(
         message_text,
         source_agent_url,
         request_id=request_id,
+        action_data=action_data,
     )
     request_body = json.dumps(request_payload).encode("utf-8")
     request = UrlRequest(
@@ -425,6 +523,7 @@ def create_outbound_a2a_task_for_pet(
     agent_url: str,
     message_text: str,
     source_agent_url: str | None = None,
+    action_data: AgentActionPayload | None = None,
 ) -> tuple[PetTask, dict[str, Any]]:
     normalized_agent_url = agent_url.strip()
     normalized_message_text = message_text.strip()
@@ -446,6 +545,7 @@ def create_outbound_a2a_task_for_pet(
             normalized_agent_url,
             normalized_message_text,
             source_agent_url=source_agent_url,
+            action_data=action_data,
         )
         task_state = map_external_a2a_state_to_pet_task_state(remote_result["state"])
         output_text = remote_result["replyText"]

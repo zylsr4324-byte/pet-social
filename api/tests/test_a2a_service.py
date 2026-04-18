@@ -58,6 +58,7 @@ def build_stub_modules() -> tuple[dict[str, types.ModuleType], type[Exception]]:
     app_services_module.__path__ = []
 
     app_models_module = types.ModuleType("app.models")
+    app_schemas_module = types.ModuleType("app.schemas")
 
     class Message(StubEntity):
         pass
@@ -68,9 +69,34 @@ def build_stub_modules() -> tuple[dict[str, types.ModuleType], type[Exception]]:
     class PetTask(StubEntity):
         pass
 
+    class AgentActionPayload:
+        def __init__(
+            self,
+            *,
+            action: str,
+            emotion: str,
+            body_language: str,
+            vocalization: str,
+        ):
+            self.action = action
+            self.emotion = emotion
+            self.body_language = body_language
+            self.vocalization = vocalization
+
+        def model_dump_json(self) -> str:
+            return json.dumps(
+                {
+                    "action": self.action,
+                    "emotion": self.emotion,
+                    "body_language": self.body_language,
+                    "vocalization": self.vocalization,
+                }
+            )
+
     app_models_module.Message = Message
     app_models_module.Pet = Pet
     app_models_module.PetTask = PetTask
+    app_schemas_module.AgentActionPayload = AgentActionPayload
 
     pet_chat_module = types.ModuleType("app.services.pet_chat")
     pet_chat_module.create_pet_chat_turn = lambda db, pet, message_text: (
@@ -87,6 +113,7 @@ def build_stub_modules() -> tuple[dict[str, types.ModuleType], type[Exception]]:
             "sqlalchemy.orm": sqlalchemy_orm_module,
             "app": app_module,
             "app.models": app_models_module,
+            "app.schemas": app_schemas_module,
             "app.services": app_services_module,
             "app.services.pet_chat": pet_chat_module,
             "app.services.pet_personality": pet_personality_module,
@@ -264,6 +291,92 @@ class A2AServiceTests(unittest.TestCase):
             payload["params"]["metadata"]["sourceAgentUrl"],
             "https://source.example/agent",
         )
+
+    def test_build_outbound_message_send_payload_embeds_pet_action_metadata(self):
+        action_data = self.a2a.AgentActionPayload(
+            action="pounce",
+            emotion="excited",
+            body_language="tail_up",
+            vocalization="meow",
+        )
+
+        payload = self.a2a.build_outbound_message_send_payload(
+            "hello",
+            "https://source.example/agent",
+            action_data=action_data,
+            request_id="req-2",
+        )
+
+        self.assertIn("metadata", payload["params"])
+        self.assertEqual(
+            payload["params"]["metadata"]["sourceAgentUrl"],
+            "https://source.example/agent",
+        )
+        self.assertEqual(
+            json.loads(payload["params"]["metadata"]["petAction"]),
+            {
+                "action": "pounce",
+                "emotion": "excited",
+                "body_language": "tail_up",
+                "vocalization": "meow",
+            },
+        )
+
+    def test_build_outbound_message_send_payload_accepts_dict_style_action_object(self):
+        action_data = types.SimpleNamespace(
+            dict=lambda: {
+                "action": "pounce",
+                "emotion": "excited",
+                "body_language": "tail_up",
+                "vocalization": "meow",
+            }
+        )
+
+        payload = self.a2a.build_outbound_message_send_payload(
+            "hello",
+            action_data=action_data,
+        )
+
+        self.assertEqual(
+            json.loads(payload["params"]["metadata"]["petAction"]),
+            {
+                "action": "pounce",
+                "emotion": "excited",
+                "body_language": "tail_up",
+                "vocalization": "meow",
+            },
+        )
+
+    def test_build_outbound_message_send_payload_rejects_invalid_action_payload(self):
+        action_data = types.SimpleNamespace(
+            dict=lambda: {
+                "action": "pounce",
+                "emotion": "excited",
+                "body_language": "tail_up",
+                "vocalization": None,
+            }
+        )
+
+        with self.assertRaises(self.http_exception) as context:
+            self.a2a.build_outbound_message_send_payload(
+                "hello",
+                action_data=action_data,
+            )
+
+        self.assertEqual(context.exception.status_code, 400)
+        self.assertIn("vocalization", context.exception.detail)
+
+    def test_build_outbound_message_send_payload_rejects_non_object_json(self):
+        action_data = types.SimpleNamespace(json=lambda: '["bad"]')
+
+        with self.assertRaises(self.http_exception) as context:
+            self.a2a.build_outbound_message_send_payload(
+                "hello",
+                action_data=action_data,
+            )
+
+        self.assertEqual(context.exception.status_code, 400)
+        self.assertIn("serialize to an object", context.exception.detail)
 
     def test_parse_outbound_message_send_response_reads_task_summary(self):
         parsed = self.a2a.parse_outbound_message_send_response(

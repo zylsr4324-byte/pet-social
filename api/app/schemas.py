@@ -233,6 +233,13 @@ class SocialReplyPayload(BaseModel):
     text: str
 
 
+class AgentActionPayload(BaseModel):
+    action: str
+    emotion: str
+    body_language: str
+    vocalization: str
+
+
 class SocialSendResponse(BaseModel):
     message: str
     task: PetTaskResponse
