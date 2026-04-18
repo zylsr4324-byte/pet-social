@@ -469,11 +469,11 @@ class AutoSocialServiceTests(unittest.TestCase):
 
         self.assertTrue(result)
         create_message.assert_called_once()
-        self.assertEqual(create_message.call_args.args[3], "Mochi perks up and invites Bean to play.")
+        self.assertEqual(create_message.call_args.args[3], "Mochi精神一振，主动邀请Bean一起玩。")
         create_task.assert_called_once()
         complete_task.assert_called_once()
         self.assertIn(
-            "Mochi[action=seek_playmate, emotion=excited]: Mochi perks up and invites Bean to play.",
+            "Mochi[action=seek_playmate, emotion=excited]: Mochi精神一振，主动邀请Bean一起玩。",
             complete_task.call_args.args[1],
         )
 
@@ -517,7 +517,7 @@ class AutoSocialServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             create_message.call_args.args[3],
-            "Mochi perks up and invites Bean to play.",
+            "Mochi精神一振，主动邀请Bean一起玩。",
         )
 
     def test_social_intent_with_non_nearby_target_records_self_behavior_instead_of_dirty_task(self):
@@ -628,7 +628,7 @@ class AutoSocialServiceTests(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(
             create_message.call_args.args[3],
-            "Mochi perks up and invites Bean to play.",
+            "Mochi精神一振，主动邀请Bean一起玩。",
         )
 
     def test_request_autonomous_action_calls_existing_llm_and_parses_json(self):

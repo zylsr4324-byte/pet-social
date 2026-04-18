@@ -766,9 +766,9 @@ def _build_placeholder_social_action(llm_context: dict[str, Any]) -> dict[str, A
 
     if intent == "seek_playmate":
         text = (
-            f"{source_name} perks up and invites {target_name} to play."
+            f"{source_name}精神一振，主动邀请{target_name}一起玩。"
             if target_name
-            else f"{source_name} looks around for someone to play with."
+            else f"{source_name}环顾四周，想找个伙伴一起玩。"
         )
         return {
             "action": "seek_playmate",
@@ -790,9 +790,9 @@ def _build_placeholder_social_action(llm_context: dict[str, Any]) -> dict[str, A
 
     if intent == "observe_silently":
         text = (
-            f"{source_name} quietly observes {target_name} from nearby."
+            f"{source_name}安静地在旁边观察{target_name}。"
             if target_name
-            else f"{source_name} quietly observes the room."
+            else f"{source_name}安静地观察着房间里的动静。"
         )
         return {
             "action": "observe_silently",
@@ -813,9 +813,9 @@ def _build_placeholder_social_action(llm_context: dict[str, Any]) -> dict[str, A
         }
 
     text = (
-        f"{source_name} explores the area and gives {target_name} a curious greeting."
+        f"{source_name}在附近探索，并好奇地向{target_name}打招呼。"
         if target_name
-        else f"{source_name} explores the area and listens for nearby pets."
+        else f"{source_name}在附近探索，竖起耳朵听有没有其他宠物。"
     )
     return {
         "action": "explore_around",
@@ -1157,11 +1157,11 @@ def _build_auto_social_message(
     body_language = _safe_pet_text(action_decision.get("body_language"))
     vocalization = _safe_pet_text(action_decision.get("vocalization"))
 
-    segments = [f"{source_pet.pet_name} shows {action} toward {target_pet.pet_name}."]
+    segments = [f"{source_pet.pet_name}对{target_pet.pet_name}表现出{action}。"]
     if body_language:
-        segments.append(f"Body language: {body_language}.")
+        segments.append(f"身体动作：{body_language}。")
     if vocalization:
-        segments.append(f"Sound: {vocalization}.")
+        segments.append(f"声音：{vocalization}。")
 
     return _truncate_text(" ".join(segments))
 
